@@ -1,0 +1,24 @@
+Creacion de Servidores ACD tomando un Snapshot 
+
+
+Primero debo crear las instancias desde el OpenStack, sin embargo por defecto Open no copia las carpetas de telefonia y logs por ser un disco efimero.
+
+primero ingreso al server que cree en Horizon via ssh y hago (chown -R telefonia.telefonia /produccion) para darle permisos al usuario telefonia en la carpeta produccion.
+
+luego ingresar al 172.16.10.104 e ingresar con cd a /produccion luego hacer un ls y vere las carpetas lost y telefonia.
+
+hacer un scp -r logs/ telefonia/ telefonia@172.16.10.xxx:/produccion (clave p2rs4n).
+
+(con este comando estoy copiando via scp donde xxx es el terminal de la ip del server destino que es el que cree desde Horizon y /produccion es la carpeta destino a donde se copiara la data.)
+
+Ahora valido el estatus de Asterisk y Callcenter
+
+/etc/init.d/asterisk status
+/etc/init.d/callcenter status
+
+Y Activo los Servicios:
+
+/etc/init.d/asterisk start
+/etc/init.d/callcenter start
+
+luego todo Ready

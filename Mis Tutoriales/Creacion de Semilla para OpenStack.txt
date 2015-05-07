@@ -1,0 +1,28 @@
+Para crear una maquina virtual para usarla luego en las instancias en Open Stack debo:
+
+Ingresar al Server Mirror: 172.16.15.25 con root
+
+irme a /var/tmp y ejecutar:
+
+kvm -m 2048 -cdrom /mnt/repositorios/cfgs/netinstalls/CentOS- -drive file=test.qcow2,if=virtio -net nic,model=virtio -net user -nographic -vnc :9 -k es -usbdevice tablet -smp cpus=2
+
+donde: test.qcow2 es el nombre del disco que le pondre y la ruta /mnt/repositorios/cfgs es donde esta la iso (donde dice centos presionar tab para buscar)
+
+Ejemplo:
+
+ kvm -m 2048 -cdrom /mnt/repositorios/cfgs/netinstalls/CentOS-6.6-x86_64-netinstall.iso -drive file=test.qcow2,if=virtio -net nic,model=virtio -net user -nographic -vnc :9 -k es -usbdevice tablet -smp cpus=2
+
+pero antes debo crear el disco virtual 
+
+/var/tmp# qemu-img create -f qcow2 test.qcow2 30G
+
+Donde 30G es el tamaño del disco.
+
+Usar un cliente UltraVNC e ingresar a 172.16.15.25:9 y usar alguna plantilla automatizada, ingresando a la ip antes mencionada via httpd 
+
+
+donde test.qcow2 es el nombre del disco y 30G es el tamaño del disco.
+
+
+
+
