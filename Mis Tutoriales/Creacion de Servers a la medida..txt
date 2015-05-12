@@ -1,0 +1,48 @@
+Crear Servers segun requerimientos.
+
+Ir a OpenStack HC2, Proyectos => Instancias => Lanzar la instancia con el Flavor que mas convenga, lanzarla en la vlan10 con FullAccess
+
+Una vez elegido el SO (sea Debian o Centos), conectarse via ssh al server y hacer un yum update o apt-get update segun el sistema
+
+Si es un Web Server instalar apache 
+apache2 -Debian
+httpd - Centos6
+
+Segun el sistema instalar los paquetes que se requieran, en el caso de LimeSurvey se requirieron: 
+
+yum -y install php-mcrypt php-mbstring php-common php-pdo php-cli php-pgsql php-gd php-xml php-ldap php-imap php-zip php zlib libtool-ltdl mhash mcrypt httpd php
+
+SOLO SI SE REQUIERE: Para modificar la zona horaria:
+
+vi /etc/php.ini
+date.timezone = America/Caracas
+
+(para buscar con vi debo poner /)
+
+Luego debo crear el usuario que va a hacer uso del server, lo hago con 
+
+useradd <nombredeluser>. Ejemplo: useradd sistemas
+
+luego passwd sistemas (para cambiar la clave) y le pongo la clave que nadie sabe: p2rs4n
+
+a root le pongo: p2rs4n2015
+
+Tip Importante:
+
+Cuando se requieren servers con php debe estar: php-common php-pdo php-cli php-ldap
+
+En Centos los servicios que se requieren inicien con la maquina se deben colocar con chkconfig
+
+ejemplo:
+
+chkconfig httpd on
+chkconfig mysqld on
+chkconfig ntpd on
+
+Luego debemos iniciar los servicios a mano, ejemplo:
+
+service httpd start
+service mysqld start
+service ntpd start
+
+(En Debian esto no hay que hacerlo).
