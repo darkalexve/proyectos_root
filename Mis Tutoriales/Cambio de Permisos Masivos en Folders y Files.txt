@@ -1,0 +1,21 @@
+*****Cambio de Permisos de forma masiva****
+
+
+#A continuacion una mini-guia para cambiar de forma masiva los permisos de una carpeta para poder verla.
+#OJO Para carpetas usar 775 y para Archivos 644
+
+#Este ejemplo se hizo en la NAS
+
+#Con este comando pido que busque los nombre de cualquier cosa (*) de tipo carpeta (d), al ejecutar el find el va a buscar dentro del directorio donde me encuentre.
+find . -name "*" -type d
+
+#Con este otro comando igual pido que busque cualquier cosa de tipo carpeta y ademas que ejecute el comando chmod 755 a toda esa "cualquier cosa de tipo carpeta", finaliza con ;
+
+find . -name "*" -type d -exec chmod 755 "{}" ";"
+
+#Y por ultimo este hace lo mismo que el de arriba pero en vez de carpetas busca archivos (Files) y les pone el permiso 644
+find . -name "*" -type f -exec chmod 644 "{}" ";"
+
+
+*******FIN***********
+
