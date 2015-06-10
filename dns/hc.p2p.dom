@@ -1,0 +1,106 @@
+$ORIGIN .
+$TTL 38400	; 10 hours 40 minutes
+hc.p2p.dom		IN SOA	mirror.hc.p2p.dom. root.mirror.hc.p2p.dom. (
+				2015052900 ; serial
+				10800      ; refresh (3 hours)
+				3600       ; retry (1 hour)
+				1209600    ; expire (2 weeks)
+				38400      ; minimum (10 hours 40 minutes)
+				)
+			NS	mirror.hc.p2p.dom.
+			NS	controller01.cloud0.p2p.dom.
+			NS	controller02.cloud0.p2p.dom.
+$ORIGIN hc.p2p.dom.
+mirror			IN	A	172.16.15.25
+mirror-01		IN	A	172.16.15.30
+mirror-02		IN	A	172.16.15.31
+
+;
+; Otros servidores en hc.p2p.dom
+zabbix			IN	A	172.16.10.120
+puppet			IN	A	172.16.10.154
+gw-tlv			IN	A	172.16.15.80
+otrs			IN	CNAME	vm-172-16-10-50.cloud0.hc.p2p.dom.
+openvas			IN	CNAME	vm-172-16-10-68.cloud0.hc.p2p.dom.
+otrs-gysmo		IN	CNAME	vm-172-16-10-96.cloud0.hc.p2p.dom.
+pgpoolrr	900	IN	A	172.16.10.37
+		900	IN	A	172.16.10.38
+;
+gysmowebrr	900	IN	A	172.16.10.97
+		900	IN	A	172.16.10.98
+		900	IN	A	172.16.10.99
+		900	IN	A	172.16.10.100
+;
+; Encuestas en linea
+;
+encuestas		IN	CNAME	vm-172-16-10-169.cloud0.hc.p2p.dom.
+;
+;
+; Nombres para servicios balanceados de GYSMO:
+aplgysmo	60	IN	A	172.16.10.205
+acdgysmocall	60	IN	A	172.16.10.221
+acdregistro	60	IN	A	172.16.10.220
+ivrgysmo	60	IN	A	172.16.10.202
+dbgysmo		60	IN	A	172.16.10.37
+dbgysmo-cc	60	IN	A	172.16.10.37
+gysmoadm	60	IN	A	172.16.40.117
+;
+; Seccion para zona "cloud0" - Nube OpenStack principal en Hilocentro
+;
+$ORIGIN cloud0.hc.p2p.dom.
+controller01		IN	A	172.16.17.1
+controller02		IN	A	172.16.17.2
+compute01		IN	A	172.16.17.3
+compute02		IN	A	172.16.17.4
+compute03		IN	A	172.16.17.5
+compute04		IN	A	172.16.17.6
+compute05		IN	A	172.16.17.7
+compute06		IN	A	172.16.17.8
+compute07		IN	A	172.16.17.9
+compute08		IN	A	172.16.17.10
+compute09		IN	A	172.16.17.11
+compute10		IN	A	172.16.17.12
+compute11		IN	A	172.16.17.13
+compute12		IN	A	172.16.17.14
+compute13		IN	A	172.16.17.15
+compute14		IN	A	172.16.17.16
+compute15		IN	A	172.16.17.17
+compute16		IN	A	172.16.17.18
+compute17		IN	A	172.16.17.19
+compute18		IN	A	172.16.17.20
+compute19		IN	A	172.16.17.21
+compute20		IN	A	172.16.17.22
+compute21		IN	A	172.16.17.23
+compute22		IN	A	172.16.17.24
+compute23		IN	A	172.16.17.25
+compute24		IN	A	172.16.17.26
+compute25		IN	A	172.16.17.27
+compute26		IN	A	172.16.17.28
+compute27		IN	A	172.16.17.29
+compute28		IN	A	172.16.17.30
+compute29		IN	A	172.16.17.31
+compute30		IN	A	172.16.17.32
+;
+;
+; Nombres genericos para las VM's
+;
+dnsmasq-172-16-10	IN	A	172.16.10.35
+dnsmasq-172-16-11	IN	A	172.16.11.35
+dnsmasq-10-1-234	IN	A	10.1.234.200
+$GENERATE 36-247        vm-172-16-10-$.cloud0.hc.p2p.dom.	A	172.16.10.$
+$GENERATE 36-247        vm-172-16-11-$.cloud0.hc.p2p.dom.	A	172.16.11.$
+$GENERATE 200-245       vm-10-1-234-$.cloud0.hc.p2p.dom.	A	10.1.234.$
+$GENERATE 36-247        host-172-16-10-$.cloud0.hc.p2p.dom.	A	172.16.10.$
+$GENERATE 36-247        host-172-16-11-$.cloud0.hc.p2p.dom.	A	172.16.11.$
+$GENERATE 200-245       host-10-1-234-$.cloud0.hc.p2p.dom.	A	10.1.234.$
+
+;
+; Seccion para cloud1 - Nube original en Hilocentro
+;
+$ORIGIN cloud1.hc.p2p.dom.
+;
+;
+controller01		IN	A	172.16.40.51
+compute01		IN	A	172.16.40.50
+;
+;

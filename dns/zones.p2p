@@ -1,0 +1,15 @@
+zone "hc.p2p.dom" {
+        type master;
+        file "/etc/bind/hc.p2p.dom";
+};
+
+zone "at.p2p.dom" {
+        type master;
+        file "/etc/bind/at.p2p.dom";
+};
+
+zone "tr.p2p.dom" {
+        type master;
+        file "/etc/bind/tr.p2p.dom";
+};
+

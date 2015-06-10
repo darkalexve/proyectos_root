@@ -1,0 +1,24 @@
+zone "15.16.172.in-addr.arpa" {
+	type master;
+	file "/etc/bind/172.16.15.rev";
+};
+
+zone "17.16.172.in-addr.arpa" {
+	type master;
+	file "/etc/bind/172.16.17.rev";
+};
+
+zone "10.16.172.in-addr.arpa" {
+	type master;
+	file "/etc/bind/172.16.10.rev";
+};
+
+zone "11.16.172.in-addr.arpa" {
+        type master;
+        file "/etc/bind/172.16.11.rev";
+};
+
+zone "234.1.10.in-addr.arpa" {
+	type master;
+	file "/etc/bind/10.1.234.rev";
+};
