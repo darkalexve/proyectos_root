@@ -1,0 +1,15 @@
+$ORIGIN .
+$TTL 86400	; 1 day
+10.16.172.in-addr.arpa	IN SOA	mirror.hc.p2p.dom. root.mirror.hc.p2p.dom. (
+				2015012100 ; serial
+				28800      ; refresh (8 hours)
+				14400      ; retry (4 hours)
+				3600000    ; expire (5 weeks 6 days 16 hours)
+				86400      ; minimum (1 day)
+				)
+			NS	mirror.hc.p2p.dom.
+$ORIGIN 10.16.172.in-addr.arpa.
+;
+;
+35			PTR	dnsmasq-172-16-10.cloud0.hc.p2p.dom.
+$GENERATE 36-247	$	PTR	vm-172-16-10-$.cloud0.hc.p2p.dom.

@@ -1,0 +1,43 @@
+$ORIGIN .
+$TTL 86400	; 1 day
+17.16.172.in-addr.arpa	IN SOA	mirror.hc.p2p.dom. root.mirror.hc.p2p.dom. (
+				2015010600 ; serial
+				28800      ; refresh (8 hours)
+				14400      ; retry (4 hours)
+				3600000    ; expire (5 weeks 6 days 16 hours)
+				86400      ; minimum (1 day)
+				)
+			NS	mirror.hc.p2p.dom.
+$ORIGIN 17.16.172.in-addr.arpa.
+1			PTR	controller01.cloud0.hc.p2p.dom.
+2			PTR	controller02.cloud0.hc.p2p.dom.
+3			PTR	compute01.cloud0.hc.p2p.dom.
+4			PTR	compute02.cloud0.hc.p2p.dom.
+5			PTR	compute03.cloud0.hc.p2p.dom.
+6			PTR	compute04.cloud0.hc.p2p.dom.
+7			PTR	compute05.cloud0.hc.p2p.dom.
+8			PTR	compute06.cloud0.hc.p2p.dom.
+9			PTR	compute07.cloud0.hc.p2p.dom.
+10			PTR	compute08.cloud0.hc.p2p.dom.
+11			PTR	compute09.cloud0.hc.p2p.dom.
+12			PTR	compute10.cloud0.hc.p2p.dom.
+13			PTR	compute11.cloud0.hc.p2p.dom.
+14			PTR	compute12.cloud0.hc.p2p.dom.
+15			PTR	compute13.cloud0.hc.p2p.dom.
+16			PTR	compute14.cloud0.hc.p2p.dom.
+17			PTR	compute15.cloud0.hc.p2p.dom.
+18			PTR	compute16.cloud0.hc.p2p.dom.
+19			PTR	compute17.cloud0.hc.p2p.dom.
+20			PTR	compute18.cloud0.hc.p2p.dom.
+21			PTR	compute19.cloud0.hc.p2p.dom.
+22			PTR	compute20.cloud0.hc.p2p.dom.
+23			PTR	compute21.cloud0.hc.p2p.dom.
+24			PTR	compute22.cloud0.hc.p2p.dom.
+25			PTR	compute23.cloud0.hc.p2p.dom.
+26			PTR	compute24.cloud0.hc.p2p.dom.
+27			PTR	compute25.cloud0.hc.p2p.dom.
+28			PTR	compute26.cloud0.hc.p2p.dom.
+29			PTR	compute27.cloud0.hc.p2p.dom.
+30			PTR	compute28.cloud0.hc.p2p.dom.
+31			PTR	compute29.cloud0.hc.p2p.dom.
+32			PTR	compute30.cloud0.hc.p2p.dom.
