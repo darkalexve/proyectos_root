@@ -1,0 +1,50 @@
+Configuracion de servidor NFS con Samba maquinas Windows
+
+Paqueterias:
+
+Centos: yum install samba.x86_64 samba-client.x86_64 samba-common.x86_64
+Debian: apt-get install samba
+
+Primero: Creacion de usuario.
+
+Primero crearemos el usuario que se logeara e interactuara con el usuario final (cliente windows), le asignamos el path donde comenzara ese usuario (/mnt/video_gysmocc), la instruccion nologin es para que este usuario no se pueda logear desde el bash.
+
+useradd -c "Usuario Gysmo Recordings" -d /mnt/video_gysmocc -s /sbin/nologin gysmorecord
+
+Vale acotar que la ruta /mnt/video_gysmocc esta previamente montada como recurso NFS y apunta a la NAS
+172.16.17.2:/mnt/asterisk01/produccion/videos    22T   4,8T   16T  24% /mnt/video_gysmocc
+
+Ahora generamos el password que debera usar el cliente final (cliente windows).
+
+Para el sistema operativo:
+echo "gysmorecord:P@ssw0rd"|chpasswd
+
+Para el Samba:
+smbpasswd -a gysmorecord
+
+Segundo: Editar el smb.conf
+
+Adjunto a este LAB hay un modelo que puedes utilizar, abrelo y verifica estas lineas
+
+[videos]
+valid users = gysmorecord
+writable = yes
+path = /mnt/video_gysmocc
+# path = /mnt/testing
+public = yes
+guest ok = no
+browsable = yes
+force user = root
+force group = root
+
+
+Donde valid users es el usuario que acabas de crear, y force user y group sirven para que el sistema haga el wrap y todo file o escritura sea hecha por root, esto lo puedes cambiar, por ejemplo por telefonia. 
+
+Una vez todo este customizado guarda los cambios.
+
+Reinicamos los servicios:
+systemctl restart smb.service && systemctl status smb.service
+
+En este punto ya deberias poder montar el recurso nfs desde samba en Sistemas Windows. 
+
+

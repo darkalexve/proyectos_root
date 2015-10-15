@@ -12,6 +12,8 @@ Ejemplo:
 
  kvm -m 2048 -cdrom /mnt/repositorios/cfgs/netinstalls/CentOS-6.6-x86_64-netinstall.iso -drive file=test.qcow2,if=virtio -net nic,model=virtio -net user -nographic -vnc :9 -k es -usbdevice tablet -smp cpus=2
 
+qemu-kvm -m 1024 -cdrom virtio.iso -drive file=windows7-sda.qcow2,if=ide -drive file=temp.qcow2,if=virtio -net nic,model=virtio -net user -nographic -vnc :9 -k es -usbdevice tablet
+
 pero antes debo crear el disco virtual 
 
 /var/tmp# qemu-img create -f qcow2 test.qcow2 30G
