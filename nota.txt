@@ -1,0 +1,1 @@
+172.16.1.237:/Backup-172-16-1-189       /mnt/qnap-atlantic/     nfs     rw,noauto,hard,intr,timeo=90,bg,vers=3,proto=tcp,rsize=32768,wsize=32768      0 0
