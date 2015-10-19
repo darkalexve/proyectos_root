@@ -1,0 +1,259 @@
+Postinstall para Fedora 20
+
+########################################################################################################
+########################################################################################################
+########################################################################################################
+############## Instalacion General #####################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+
+NOTA: Ejecutar los siguientes comandos en una consola como "root" - ES NECESARIO que el equipo tenga
+conexión a Internet.
+
+Junto con este archivo existen los siguientes:
+
+postinstall-fedora.sh
+adobe-release-i386-1.0-1.noarch.rpm
+adobe-release-x86_64-1.0-1.noarch.rpm
+
+Crear un directorio temporal (ejemplo /workdir), copiar los tres archivos a dicho directorio, cambiar
+al directorio, hacer ejecutable el script "postinstall-fedora.sh" (con chmod a+x) y ejecutarlo.
+
+mkdir /workdir
+cp postinstall-fedora-sh adobe-release*.rpm /workdir
+cd /workdir
+chmod a+x postinstall-fedora.sh
+./postinstall-fedora.sh
+
+Este postinstall hace lo siguiente:
+
+Instala RPMFUSION
+Instala varios paquetes necesarios/extras que normalmente no son instalados (junto con sus dependen-
+cias)
+Actualiza todo el sistema operativo
+Instala el flash-plugin de Adobe.
+
+
+########################################################################################################
+########################################################################################################
+########################################################################################################
+############## Plugin de FLASH  (32 y 64 bits) #########################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+
+NOTA: Solo usar esta sección en caso que el script de postinstall no haya logrado instalar el plugin
+de flash.
+ 
+PREVIO: Asegurarse de que los navegadores (firefox, chrome, etc., no se estén ejecutando y correr todos
+los comandos de yum como root).
+ 
+1.- Bajar el RPM de flash desde www.adobe.com. Elegir opción "yum" e instalar el RPM. MUY IMPORTANTE: Ya
+existe el de 64 bits... instalar ese si es un FC16 de 64-
+ 
+2.- ejecutar el siguiente comando:
+ 
+yum install flash-plugin
+ 
+3.- Verificar en el firefox colocando en la barra de navegación "about:plugins" (sin las comillas).
+
+
+########################################################################################################
+########################################################################################################
+########################################################################################################
+############## GRUB2 con TEMA GFX  #####################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+
+En el archivo /etc/default/grub se descomenta la entrada del tema:
+
+# GRUB_THEME="/boot/grub2/themes/system/theme.txt"
+# GRUB_THEME="/boot/grub2/themes/starfield/theme.txt"
+
+NOTA: En Fedora 20 el tema starfield está en /usr/share/grub/themes !
+
+Hay dos temas... system y starfield. Cualquiera de los dos se puede usar. Luego de hacer la modificación,
+ejecutar el comando siguiente:
+
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+NOTA: En tema "system" tiene mejor lectura que el starfield (letras mas claras).
+
+
+
+########################################################################################################
+########################################################################################################
+########################################################################################################
+############## PLYMOUTH  ###############################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+
+Plymouth viene con varios temas (incluyendo el Hot-dog). Se recomienda el tema "hot-dog".
+Ejecutar los comandos siguientes:
+
+plymouth-set-default-theme hot-dog
+dracut -f /boot/initramfs-$(uname -r).img $(uname -r)
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+NOTA: El script de postinstall ya hace lo necesario para que quede hot-dog como tema.
+
+ 
+########################################################################################################
+########################################################################################################
+########################################################################################################
+############## Tips Generales extras ###################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+ 
+ 
+NOTA EXTRA: Recomendación: Usar el "Tweak Advanced Settings" para colocar lo siguiente:
+ 
+1.- En "interface" activar "Menu Have Icons" y "Button Have Icons".
+2.- En "shell" activar "Show date in clock" y "show the week date in the calendar".
+3.- En "shell" también colocar "Arrangemet of Buttons on the titlebar" con la opción "All".
+4.- En "Windows" recomiendo usar el tema "Mist".
+ 
+OJO IMPORTANTE !!
+
+La función de logout viene deshabilitada en el nuevo gnome. Pare rehabilitarla, usar el dconf-editor y
+en la sección:
+
+ORG->GNOME->SHELL
+
+Activar "always-show-logout"
+
+Adicionalmente el NAUTILUS vienen con muchos "detalles"... ver el siguiente link para corregirlos:
+
+https://wiki.archlinux.org/index.php/Nautilus
+
+Ejemplo (usar en la sesion del usuario, no la de root):
+
+gsettings set org.gnome.nautilus.preferences always-use-location-entry true
+gsettings set org.gnome.nautilus.preferences default-sort-order type
+
+y
+
+Nautilus 3.6 create an empty document
+
+Gnome 3.6 brings new changes to Nautilus. Some features are dropped in favour of easy maintainence 
+of Nautilus. Creating an empty document option has been removed from the default menu in Nautilus.
+One has to create a ~/Templates/ folder in your home folder and place an empty file inside the folder
+through your favourite Terminal by touch ~/Templates/new or by using any other file manager.
+Restart nautilus to get back the function of creating an empty document from Nautilus menu. 
+
+ 
+########################################################################################################
+########################################################################################################
+########################################################################################################
+############## Instalacion Drivers NVIDIA ##############################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+
+SOLO PARA EQUIPOS CON TARJETA DE RED NVIDIA.
+ 
+1.- Asegurarse que se está en el último kernel.
+
+2.- Instalar RPMFUSION (mas arriba en el postinstall sale como)
+
+3.- Instalar el paquete AKMOD:
+
+yum install akmod-nvidia
+
+4.- Regenerar el initial ram disk:
+
+dracut -f /boot/initramfs-$(uname -r).img $(uname -r)
+
+5.- Arreglar el GRUB con las siguientes instrucciones y luego reiniciar:
+
+
+ARREGLOS DE GRUB2 PARA PC's CON DRIVERS NVIDIA (RPMFUSION). - NOTA: Este paso no es obligatorio.
+
+
+1.- Al iniciar la PC (en el menu de grub2) se debe teclear "c" para entrar a la línea de comando y
+verificar los modos VBE soportados con los siguientes comandos:
+
+set pager=1
+insmod vbe
+vbeinfo
+
+
+2.- Una vez dentro del S/O, se crea un nuevo font:
+
+grub2-mkfont --output=/boot/grub2/DejaVuSansMono.pf2 --size=24 /usr/share/fonts/dejavu/DejaVuSansMono.ttf
+
+ 
+
+3.- Con la información obtenida por vbeinfo, y dependiendo del modo, se colocan las siguientes lineas en
+el archivo /etc/default/grub
+
+
+GRUB_BACKGROUND=/usr/share/backgrounds/heisenbug/default/normalish/heisenbug.png 
+GRUB_GFXMODE=1280x1024x32
+GRUB_GFXPAYLOAD_LINUX=1280x1024x32
+GRUB_VIDEO_BACKEND="vbe"
+GRUB_TERMINAL_OUTPUT="gfxterm"
+GRUB_FONT_PATH="/boot/grub2/DejaVuSansMono.pf2"
+
+NOTA IMPORTANTE !!
+
+Se puede usar el tema de GRUB2 en lugar de las instrucciones descritas anteriormente si se descomenta
+el tema:
+
+GRUB_THEME="/boot/grub2/themes/system/theme.txt"
+
+Hay dos temas, system y starfield. Con eso, las adiciones para gfxterm son innecesarias !.
+
+NOTA: Al final de la linea de comando de GRUB_CMDLINE_LINUX se coloca rdblacklist=nouveau noveau.modeset=0
+NOTA 2: En algunos PC's el menu con el tema vuelve el teclado muy lento. En tal caso, usar las
+opciones con GFXMODE.
+
+El archivo al final debe quedar como esto:
+
+ 
+GRUB_TIMEOUT=25
+GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+GRUB_DEFAULT=saved
+GRUB_CMDLINE_LINUX="XXXXXXX rhgb quiet rdblacklist=nouveau noveau.modeset=0"
+GRUB_DISABLE_RECOVERY="true"
+# GRUB_THEME="/boot/grub2/themes/system/theme.txt"
+GRUB_BACKGROUND=/usr/share/backgrounds/heisenbug/default/normalish/heisenbug.png
+GRUB_GFXMODE=1280x1024x32
+GRUB_GFXPAYLOAD_LINUX=1280x1024x32
+GRUB_VIDEO_BACKEND="vbe"
+GRUB_TERMINAL_OUTPUT="gfxterm"
+GRUB_FONT_PATH="/boot/grub2/DejaVuSansMono.pf2"
+
+o (si se usa el tema, lo cual es mas recomendable para F18):
+
+GRUB_TIMEOUT=25
+GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+GRUB_DEFAULT=saved
+GRUB_CMDLINE_LINUX="XXXXXXXXX rhgb quiet rdblacklist=nouveau noveau.modeset=0"
+GRUB_DISABLE_RECOVERY="true"
+GRUB_THEME="/boot/grub2/themes/system/theme.txt"
+# GRUB_BACKGROUND=/usr/share/backgrounds/heisenbug/default/normalish/heisenbug.png
+# GRUB_GFXMODE=1280x1024x32
+# GRUB_GFXPAYLOAD_LINUX=1280x1024x32
+# GRUB_VIDEO_BACKEND="vbe"
+# GRUB_TERMINAL_OUTPUT="gfxterm"
+# GRUB_FONT_PATH="/boot/grub2/DejaVuSansMono.pf2"
+#
+
+Se salva el archivo y se ejecuta:
+
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+########################################################################################################
+########################################################################################################
+########################################################################################################
+############## FIN #####################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+ 
+ 
