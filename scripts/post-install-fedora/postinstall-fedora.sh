@@ -166,11 +166,9 @@ myarch=`uname -m`
 case $myarch in
 x86_64)
 	dnf -y install --nogpgcheck adobe-release-x86_64-1.0-1.noarch.rpm
-	dnf -y install --nogpgcheck google-chrome-stable_current_x86_64.rpm
 	;;
 *)
 	dnf -y install --nogpgcheck adobe-release-i386-1.0-1.noarch.rpm
-	dnf -y install --nogpgcheck google-chrome-stable_current_i386.rpm
 	;;
 esac
 
@@ -178,15 +176,24 @@ dnf -y update
 
 dnf -y install flash-plugin
 
+touch /etc/yum.repos.d/google-chrome.repo
+echo "[google-chrome]" >> /etc/yum.repos.d/google-chrome.repo
+echo "name=google-chrome - \$basearch" >> /etc/yum.repos.d/google-chrome.repo
+echo "baseurl=http://dl.google.com/linux/chrome/rpm/stable/\$basearch" >> /etc/yum.repos.d/google-chrome.repo
+echo "enabled=1" >> /etc/yum.repos.d/google-chrome.repo
+echo "gpgcheck=1" >> /etc/yum.repos.d/google-chrome.repo
+echo "gpgkey=https://dl-ssl.google.com/linux/linux_signing_key.pub" >> /etc/yum.repos.d/google-chrome.repo
+
+dnf -y install google-chrome-stable
+
 echo "Instalando VirtualBox"
 
-actualuser=`whoami`
 dnf -y update
 dnf install -y kernel-headers kernel-devel dkms gcc
 wget http://download.virtualbox.org/virtualbox/rpm/fedora/virtualbox.repo -O /etc/yum.repos.d/virtualbox.repo
 dnf -y install VirtualBox-5.0
 /etc/init.d/vboxdrv setup
-usermod -G vboxusers -a $actualuser
+usermod -G vboxusers -a jmelendez
 
 
 echo "Instalando WINETRICKS"
