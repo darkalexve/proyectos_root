@@ -1,0 +1,139 @@
+Install WEBRTC support asterisk server Debian 7 squeeze
+execute with user root
+
+# Install Dependencies
+
+apt-get install ntp
+
+apt-get install build-essential subversion libncurses5-dev libssl-dev libxml2-dev libsqlite3-dev \
+uuid-dev vim-nox screen lsof mlocate wget git linux-headers-`uname -r` doxygen autoconf bison flex curl sox libncurses5-dev libssl-dev libmysqlclient-dev mpg123 libxml2-dev libnewt-dev sqlite3 libsqlite3-dev pkg-config automake libtool unixodbc-dev uuid uuid-dev libasound2-dev libogg-dev libvorbis-dev libcurl4-openssl-dev libical-dev libneon27-dev libsrtp0-dev libspandsp-dev 
+
+apt-get install libresample1 libresample1-dev speex libspeex1 libspeex-dev libspeexdsp1 libspeexdsp-dev libgsm1-dev
+
+# Install jansson
+wget http://www.digip.org/jansson/releases/jansson-2.5.tar.gz
+
+tar zxvf jansson-2.5.tar.gz
+cd jansson-2.5
+autoreconf -i
+./configure --libdir=/usr/lib/x86_64-linux-gnu/ ; set path debian lybrary 
+make & make install
+cd ..
+
+
+git clone https://github.com/cisco/libsrtp.git
+cd libsrtp
+./configure CFLAGS=-fPIC --libdir=/usr/lib/x86_64-linux-gnu/ ; set path debian lybrary 
+make
+make uninstall && make install
+
+#Download and install asterisk 
+
+wget http://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-11.11.0.tar.gz
+tar -zxvf asterisk-11.11.0.tar.gz
+cd asterisk-11.11.0
+./configure --libdir=/usr/lib/x86_64-linux-gnu/ ; set path debian lybrary 
+make menuselect
+make && make install && make config && make samples
+
+#### Configuration ####
+
+# Configure /etc/asterisk/http.conf
+
+[general]
+enabled=yes
+bindaddr=0.0.0.0
+bindport=8088
+
+# Configure /etc/asterisk/rtp.conf
+
+[general]
+rtpstart=10000
+rtpend=20000
+icesupport=yes
+stunaddr=stun.l.google.com:19302
+
+#### Generate certificates ####
+
+there are a script on asterisk source code named ast_tls_cert to generate certificas.
+
+mkdir /etc/asterisk/keys
+cd /var/tmp/asterisk-11.11.0/contrib/scripts
+
+1)  ./ast_tls_cert -C IPserver or domain name -O "WebRtcServer" -d /etc/asterisk/keys/
+EXAMPLE PASSWORK: gysmowebrtcpass
+
+2) ./ast_tls_cert -m client -c /etc/asterisk/keys/ca.crt -k /etc/asterisk/keys/ca.key -C IPserver or domain name -O "WebRtcServer" -d /etc/asterisk/keys -o ACDWEBRTC1
+
+
+# Configure /etc/asterisk/sip.conf
+
+[general]
+udpbindaddr=0.0.0.0:5060
+realm=172.16.11.141 ;replace with your Asterisk server IP address
+transport=udp,ws
+
+[1001]
+host=dynamic
+callerid=1001<1001>
+secret=1001*
+context=WEBRTC
+type=friend
+encryption=yes
+avpf=yes
+force_avp=yes
+icesupport=yes
+directmedia=no
+disallow=all
+allow=ulaw
+dtlsenable=yes
+dtlsverify=fingerprint
+dtlscertfile=/etc/asterisk/keys/asterisk.pem  
+dtlscafile=/etc/asterisk/keys/ca.crt  
+dtlssetup=actpass
+
+[1002]
+host=dynamic
+callerid=1002<1002>
+secret=1002*
+context=WEBRTC
+type=friend
+encryption=yes
+avpf=yes
+force_avp=yes
+icesupport=yes
+directmedia=no
+disallow=all
+allow=ulaw
+dtlsenable=yes
+dtlsverify=fingerprint
+dtlscertfile=/etc/asterisk/keys/asterisk.pem  
+dtlscafile=/etc/asterisk/keys/ca.crt 
+dtlssetup=actpass
+
+# Configure /etc/asterisk/extensions.conf
+
+[WEBRTC]
+
+; echo test.
+
+exten => 1000,1,Answer()
+same => n,Playback(demo-congrats)
+same => n,Hangup()
+
+; Internal call.
+
+exten => _X.,1,Answer()
+same => n,Dial(SIP/${EXTEN})
+same => n,Hangup()
+
+
+#restart asterisk service
+
+/etc/init.d/asterisk stop
+/etc/init.d/asterisk start
+
+
+# easy right ?
+
+

@@ -1,0 +1,1107 @@
+CREACION DE CLUSTER POSTGRES 9.4 CON DRBD Y HEARTBEAT - CENTOS 6.
+
+
+
+Objetivos:
+
+- Crear un cluster de postgres 9.4 con alta disponibilidad basado en Heartbeat y DRBD.
+- Crear una estructura de scripts que permita múltiples bases de datos sobre el recurso DRBD.
+- Automatizar el arranque de las bases de datos vía heartbeat.
+
+
+Ambiente Base:
+
+Servidores CENTOS 6 con EPEL 6 instalado (arquitectura x86_64), firewall y selinux desactivados. UPDATES HASTA LA FECHA !!.
+
+VM's sobre OpenStack con 16 cores, 16 GB's de ram, 32 GB's de swap, y disco efímero extra con 150 GB's de espacio (/dev/vdb).
+
+IPs:
+
+Nodo 1: Principal: 172.16.10.200 (tráfico PGSQL); Secundaria (tráfico DRBD): 172.16.11.89
+Nodo 2: Principal: 172.16.10.101 (tráfico PGSQL); Secundaria (tráfico DRBD): 172.16.11.90
+
+Nodo 1: Principal: 172.16.10.128 (tráfico PGSQL); Secundaria (tráfico DRBD): 172.16.11.136
+Nodo 2: Principal: 172.16.10.130 (tráfico PGSQL); Secundaria (tráfico DRBD): 172.16.11.137
+
+Las interfaces fueron reconfiguradas a nivel de S/O en modo estático (no-dhcp) para evitar posibles problemas de intermitencia de tráfico y evitar dependencia con el servicio DHCP de OpenStack/Neutron.
+
+El tráfico de POSTGRES será direccionado por las interfaces en la VLAN 10 (172.16.10.x) y el de DRBD por las interfaces en la VLAN 11 (172.16.11.x). El default gateway está configurado por la vlan 10 (GW: 172.16.10.254).
+
+En el archivo /etc/hosts de ambos equipos se colocaron las siguientes entradas:
+
+#
+# Para sincronizacion de DRBD
+#
+172.16.11.136 vm-172-16-11-136 vm-172-16-11-136.cloud0.hc.p2p.dom
+172.16.11.137 vm-172-16-11-137 vm-172-16-11-137.cloud0.hc.p2p.dom
+#
+#
+
+Se configuró relación de confianza bi-direccional para el usuario root entre ambos equipos con los comandos ssh-keygen -t dsa y ssh-copy-id.
+
+Se configuró en ambos servidores el siguiente archivo:
+
+vi /root/.ssh/config
+
+Con el contenido:
+
+Host *
+StrictHostKeyChecking no
+UserKnownHostsFile=/dev/null
+
+Y se le cambia el modo:
+
+chmod 600 /root/.ssh/config
+
+Se elimina cualquier archivo "known_host" previamente existente:
+
+rm -f /root/.ssh/known_hosts
+
+En el /etc/sysctl.conf se agregaron/cambiaron los siguientes items:
+
+kernel.shmmax = 17179869184
+kernel.shmall = 2147483648
+kernel.sem = 500 32000 300 1500
+
+Y se ejecutó sysctl -p
+
+En el archivo /etc/security/limits.conf se agrega al final:
+
+   postgres soft nofile 1024
+   postgres hard nofile 65536
+
+   postgres soft nproc 4094
+   postgres hard nproc 16384
+
+   postgres soft stack 10240
+   postgres hard stack 32768
+
+Se salva el archivo.
+
+Esto finaliza la preparación BASE de los servidores.
+
+
+Procedimientos:
+
+En ambos servidores, se procede a agregar los repositorios ELREPO y POSTGRES94:
+
+ELREPO:
+
+rpm --import https://www.elrepo.org/RPM-GPG-KEY-elrepo.org
+rpm -Uvh http://www.elrepo.org/elrepo-release-6-6.el6.elrepo.noarch.rpm
+
+POSTGRES 9.4:
+
+rpm -Uvh http://yum.postgresql.org/9.4/redhat/rhel-6-x86_64/pgdg-centos94-9.4-1.noarch.rpm
+
+Procedemos a realizar un YUM UPDATE luego de agregar los repositorios:
+
+yum -y update
+
+Con los repos ELREPO y POSTGRES94 instalados, procedemos (en el orden que aparece a continuación) a ejecutar los siguientes comandos. De nuevo, el ORDEN es muy importante para asegurarnos que el UID del usuario postgres sea el mismo en ambos servidores:
+
+yum -y install kmod-drbd84 drbd84-utils
+
+groupadd -g 26 -o -r postgres
+useradd -M -n -g postgres -o -r -d /var/lib/pgsql -s /bin/bash -c "PostgreSQL Server" -u 26 postgres
+
+yum install postgresql94 postgresql94-contrib postgresql94-devel postgresql94-docs postgresql94-libs postgresql94-plperl postgresql94-plpython postgresql94-pltcl postgresql94-server postgresql94-python
+
+chkconfig postgresql-9.4 off
+
+yum install heartbeat
+
+chkconfig heartbeat off
+
+Ahora procedemos a preparar los recursos DRBD en ambos servidores. El disco efímero "/dev/vdb" será nuestra partición "DRBD", montada en el directorio /postgres al cual haremos propiedad del usaurio postgres, grupo postgres.
+
+En ambos servidires, Se carga el módulo de drbd:
+
+modprobe drbd
+
+Creamos, en ambos servidores, el siguiente archivo de configuración para el recurso:
+
+vi /etc/drbd.d/postgres.res
+
+Con el contenido:
+
+resource postgresql {
+    protocol C;
+    disk {
+        # on I/O errors, detach device
+        on-io-error detach;
+    }
+
+    meta-disk internal;
+    device /dev/drbd1;
+
+    syncer {
+        verify-alg sha1;
+        rate 40M;
+    }
+
+    net {
+        allow-two-primaries;
+    }
+
+    on vm-172-16-10-200.cloud0.hc.p2p.dom {
+        device /dev/drbd0;
+        disk /dev/vdb;
+        address 172.16.11.89:7789;
+        meta-disk internal;
+    }
+    on vm-172-16-10-101.cloud0.hc.p2p.dom {
+        device /dev/drbd0;
+        disk /dev/vdb;
+        address 172.16.11.90:7789;
+        meta-disk internal;
+    }
+}
+
+Salvamos el archivo.
+
+Se inicializa primero la partición contenedora en ambos nodos:
+
+dd if=/dev/zero bs=1M count=10 of=/dev/vdb
+sync
+
+drbdadm create-md postgresql
+
+En el nodo vm-172-16-10-200 se ejecutan los siguientes comandos:
+
+modprobe drbd
+drbdadm up postgresql
+
+drbdadm -- --overwrite-data-of-peer primary postgresql
+
+En ambos nodos se ejecuta:
+
+/etc/init.d/drbd start
+chkconfig drbd on
+
+En el nodo "vm-172-16-10-200" se deja el siguiente comando hasta que aparezca 100% y ambos nodos se vean en estado consistente:
+
+while true; do clear; cat /proc/drbd; sleep 10;done
+
+Una vez que aparezca 100% y ambos nodos se vean consistentes continuamos el procedimiento:
+
+version: 8.4.6 (api:1/proto:86-101)
+GIT-hash: 833d830e0152d1e457fa7856e71e11248ccf3f70 build by phil@Build64R6, 2015-04-09 14:35:00
+ 0: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate C r-----
+    ns:146796124 nr:0 dw:0 dr:146796788 al:0 bm:0 lo:0 pe:0 ua:0 ap:0 ep:1 wo:f oos:0
+
+Continuamos el procedimiento:
+
+En el nodo "vm-172-16-10-200", se procede a crear el filesystem:
+
+mkfs.ext4 -L postgres01 /dev/drbd0
+
+En ambos nodos, se ejecutan los siguientes comandos:
+
+mkdir /postgres
+
+echo "/dev/drbd/by-res/postgresql /postgres ext4 rw,noauto 0 0" >> /etc/fstab
+chown -R postgres.postgres /postgres
+
+Temporalmente, se monta el recurso en el nodo "vm-172-16-10-200" y se crean los directorios:
+
+mount /postgres/
+mkdir -p /postgres/archive
+mkdir -p /postgres/archive/gysmo
+mkdir -p /postgres/archive/gysmo_cc
+mkdir -p /postgres/backup
+mkdir -p /postgres/data
+mkdir -p /postgres/data/gysmo
+mkdir -p /postgres/data/gysmo_cc
+mkdir -p /postgres/log
+mkdir -p /postgres/log/gysmo
+mkdir -p /postgres/log/gysmo_cc
+mkdir -p /postgres/temporal
+mkdir -p /postgres/wall
+
+
+Cambiamos la permisología de los directorio de manera recursiva:
+
+chown -R postgres.postgres /postgres
+
+Continuamos la creación de directorios, pero estos quedarán bajo root.root:
+
+mkdir -p /postgres/binario
+
+Y se crea el siguiente link symbólico:
+
+ln -s /usr/pgsql-9.4 /postgres/binario/9.4.4
+
+Desmontamos el recurso:
+
+cd /
+umount /postgres
+
+En el segundo nodo (vm-172-16-10-101) convertimos el nodo a primario y montamos el recurso para verificar que se monta de manera correcta:
+
+drbdadm primary postgresql
+mount /postgres
+
+Desmontamos el recurso y volvemos a colocar a ambos nodos como primarios:
+
+cd /
+umount /postgres
+drbdadm primary all
+
+Para el servicio intra-cluster se utilizará la siguiente IP: 172.16.10.210. La misma debe ser asignada en OpenStack con los siguientes comandos:
+
+neutron port-create --fixed-ip ip_address=172.16.10.210 --security-group DRBD --security-group Postgres --security-group Heartbeat net-vlan-10
+
+Esto crea el puerto de ID: fb897130-dac7-4ef7-a8c1-331193ca8b83
+
+Se obtienen los puertos asignados a las IP's 172.16.10.200 y 172.16.10.101:
+
+neutron port-list|grep 172.16.10.200|awk '{print $2}'
+2b0ab675-0e66-4ecb-a9b0-1857802374a7
+
+neutron port-list|grep 172.16.10.101|awk '{print $2}'
+81007851-0899-4054-bc57-430ec8509dc1
+
+Y con la información obtenida, ejecutamos el siguiente comando:
+
+neutron port-update 2b0ab675-0e66-4ecb-a9b0-1857802374a7 --allowed_address_pairs list=true type=dict ip_address=172.16.10.210
+neutron port-update 81007851-0899-4054-bc57-430ec8509dc1 --allowed_address_pairs list=true type=dict ip_address=172.16.10.210
+
+Ya con los puertos creados, procedemos a configurar heartbeat:
+
+Se crea en ambos servidores el siguiente archivo:
+
+cp /usr/share/doc/heartbeat-3.0.4/authkeys /etc/ha.d/
+
+Se le cambia la permisología:
+
+chmod 600 /etc/ha.d/authkeys
+
+Y se le coloca el password de autenticación:
+
+echo "auth 1" >> /etc/ha.d/authkeys
+echo "1 sha1 Th1S1sMyP@ssW0rD-@nd-Is-0nL7-M1n3" >> /etc/ha.d/authkeys
+
+En el servidor vm-172-16-10-200 se crea el siguiente archivo:
+
+vi /etc/ha.d/ha.cf
+
+Con el contenido:
+
+debug 1
+debugfile /var/log/ha-debug
+logfile /var/log/ha-log
+logfacility local0
+keepalive 2
+deadtime 30
+initdead 120
+ucast eth1 172.16.11.90
+udpport 694
+auto_failback on
+node vm-172-16-10-200.cloud0.hc.p2p.dom
+node vm-172-16-10-101.cloud0.hc.p2p.dom
+
+Se salva el archivo.
+
+En el servidor vm-172-16-10-101 se crea el siguiente archivo:
+
+vi /etc/ha.d/ha.cf
+
+Con el contenido:
+
+debug 1
+debugfile /var/log/ha-debug
+logfile /var/log/ha-log
+logfacility local0
+keepalive 2
+deadtime 30
+initdead 120
+ucast eth1 172.16.11.89
+udpport 694
+auto_failback on
+node vm-172-16-10-200.cloud0.hc.p2p.dom
+node vm-172-16-10-101.cloud0.hc.p2p.dom
+
+Se salva el archivo.
+
+En ambos servidores se crea el siguiente archivo:
+
+vi /etc/ha.d/haresources
+
+Con el siguiente contenido:
+
+vm-172-16-10-200.cloud0.hc.p2p.dom IPaddr::172.16.10.210/24/eth0:0 drbddisk::postgresql Filesystem::/dev/drbd/by-res/postgresql::/postgres::ext4::defaults postgresp2p
+
+NOTA: Para los efectos, nuestro nodo primario será el vm-172-16-10-200, y el sistema buscará hacer auto-failback a dicho nodo (auto_failback on).
+
+Se crea el siguiente archivo con el contenido temporal para "simular" que levanta el servicio postgresp2p (en ambos nodos):
+
+vi /etc/ha.d/resource.d/postgresp2p
+
+Con el contenido:
+
+#!/bin/bash
+#
+
+case $1 in
+start)
+    echo "Starting Postgres P2P Services"
+    ;;
+stop)
+    echo "Stopping Postgres P2P Services"
+    ;;
+status)
+    echo "Postgres P2P Services Status"
+    ;;
+restart)
+    echo "Postgres P2P Services Restart"
+    ;;
+esac
+
+Se salva el archivo y se hace ejecutable:
+
+chmod 755 /etc/ha.d/resource.d/postgresp2p
+
+Todas estas tareas se hacen en ambos nodos (creación del script postgresp2p y colocarlo en modo 755).
+
+Se inicia heartbeat, primero en el nodo "vm-172-16-10-200", y luego en el nodo "vm-172-16-10-101".
+
+/etc/init.d/heartbeat start
+
+El nodo que arranca primero toma los recursos drbd (postgresql) y la IP de cluster (para el primer nodo, la 172.16.10.210).
+
+Se colocan los servicios en autostart en ambos servidores:
+
+chkconfig heartbeat on
+
+Esto montará los recursos activos (IP y /postgres) en el nodo primario (vm-172-16-10-200).
+
+Completamos el perfil de postgres para que pueda ver el PATH completo de los comandos de base de datos (en ambos servidores):
+
+echo "source /etc/bashrc" > /var/lib/pgsql/.pgsql_profile
+echo "export PATH=\$PATH:/usr/pgsql-9.4/bin/" >> /var/lib/pgsql/.pgsql_profile
+chown postgres.postgres /var/lib/pgsql/.pgsql_profile
+
+Y cambiamos el password del usuario postgres a 123456 en ambos nodos:
+
+echo "postgres:123456"|chpasswd
+
+Los siguientes pasos DEBEN ser ejecutados en el nodo activo. Para este caso, el nodo activo es el primario (vm-172-16-10-200).
+
+Ingresamos con el usaurio postgres vía su:
+
+su - postgres
+
+Y creamos las bases de datos:
+
+initdb -D /postgres/data/gysmo
+initdb -D /postgres/data/gysmo_cc
+
+Y se ejecutan los siguientes comandos para reapuntar los directorios px_log de ambas bases de datos:
+
+mv /postgres/data/gysmo/pg_xlog /postgres/wall/gysmo
+mv /postgres/data/gysmo_cc/pg_xlog /postgres/wall/gysmo_cc
+ln -s /postgres/wall/gysmo /postgres/data/gysmo/pg_xlog
+ln -s /postgres/wall/gysmo_cc /postgres/data/gysmo_cc/pg_xlog
+
+Se ejecutan los siguientes comandos para salvar las configuraciones originales:
+
+mv /postgres/data/gysmo/postgresql.conf /postgres/data/gysmo/postgresql.conf.ORIGINAL
+mv /postgres/data/gysmo_cc/postgresql.conf /postgres/data/gysmo_cc/postgresql.conf.ORIGINAL
+mv /postgres/data/gysmo/pg_hba.conf /postgres/data/gysmo/pg_hba.conf.ORIGINAL
+mv /postgres/data/gysmo_cc/pg_hba.conf /postgres/data/gysmo_cc/pg_hba.conf.ORIGINAL
+
+Se crean los nuevos archivos de configuración:
+
+vi /postgres/data/gysmo/postgresql.conf
+
+Con el contenido:
+
+#
+# POSTGRES CONFIG FOR P2P ANALISIS DB SERVICES
+#
+listen_addresses = '*'
+port = 9911
+max_connections = 2000
+superuser_reserved_connections = 6
+password_encryption = on
+shared_buffers = 2048MB
+temp_buffers = 128MB
+work_mem = 32MB
+maintenance_work_mem = 64MB
+dynamic_shared_memory_type = posix
+shared_preload_libraries = '$libdir/passwordcheck,$libdir/pg_stat_statements'
+max_worker_processes = 8
+# wal_level = hot_standby
+
+wal_level = minimal
+fsync = on
+synchronous_commit = on
+wal_sync_method = fdatasync
+wal_log_hints = off
+wal_buffers = -1
+wal_writer_delay = 200ms
+commit_delay = 0
+commit_siblings = 5
+checkpoint_segments = 6
+checkpoint_timeout = 5min
+checkpoint_completion_target = 0.5
+checkpoint_warning = 30s
+# archive_mode = on
+
+archive_mode = off
+# archive_command = 'cp  %p  /postgres/archive/gysmo/%f </dev/null'
+archive_timeout = 60
+# max_wal_senders = 6
+
+max_wal_senders = 0
+wal_keep_segments = 64
+hot_standby = on
+max_standby_archive_delay = 30s
+max_standby_streaming_delay = 30s
+wal_receiver_status_interval = 10s
+hot_standby_feedback = off
+wal_receiver_timeout = 60s
+effective_cache_size = 4GB
+log_destination = 'stderr'
+logging_collector = on
+log_directory = '/postgres/log/gysmo'
+log_filename = 'psqlgysmo-%Y%m%d.log'
+log_file_mode = 0600
+log_truncate_on_rotation = on
+log_rotation_age = 1d
+log_rotation_size = 100MB
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_duration = on
+log_error_verbosity = default
+log_hostname = on
+log_line_prefix = '%t <%u:%d:%r>'
+log_lock_waits = off
+log_statement = 'ddl'
+log_temp_files = -1
+log_timezone = 'America/Caracas'
+log_parser_stats = on
+log_planner_stats = on
+log_executor_stats = on
+log_statement_stats = off
+temp_tablespaces = 'TEMP'
+datestyle = 'iso, dmy'
+timezone = 'America/Caracas'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+default_text_search_config = 'pg_catalog.english'
+
+vi /postgres/data/gysmo_cc/postgresql.conf
+
+Con el contenido:
+
+#
+# POSTGRES CONFIG FOR P2P ANALISIS DB SERVICES
+#
+listen_addresses = '*'
+port = 9912
+max_connections = 2000
+superuser_reserved_connections = 6
+password_encryption = on
+shared_buffers = 2048MB
+temp_buffers = 128MB
+work_mem = 32MB
+maintenance_work_mem = 64MB
+dynamic_shared_memory_type = posix
+shared_preload_libraries = '$libdir/passwordcheck,$libdir/pg_stat_statements'
+max_worker_processes = 8
+# wal_level = hot_standby
+
+wal_level = minimal
+fsync = on
+synchronous_commit = on
+wal_sync_method = fdatasync
+wal_log_hints = off
+wal_buffers = -1
+wal_writer_delay = 200ms
+commit_delay = 0
+commit_siblings = 5
+checkpoint_segments = 6
+checkpoint_timeout = 5min
+checkpoint_completion_target = 0.5
+checkpoint_warning = 30s
+# archive_mode = on
+
+archive_mode = off
+# archive_command = 'cp  %p  /postgres/archive/gysmo_cc/%f </dev/null'
+archive_timeout = 60
+# max_wal_senders = 6
+
+max_wal_senders = 0
+wal_keep_segments = 64
+hot_standby = on
+max_standby_archive_delay = 30s
+max_standby_streaming_delay = 30s
+wal_receiver_status_interval = 10s
+hot_standby_feedback = off
+wal_receiver_timeout = 60s
+effective_cache_size = 4GB
+log_destination = 'stderr'
+logging_collector = on
+log_directory = '/postgres/log/gysmo_cc'
+log_filename = 'psqlgysmo_cc-%Y%m%d.log'
+log_file_mode = 0600
+log_truncate_on_rotation = on
+log_rotation_age = 1d
+log_rotation_size = 100MB
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_duration = on
+log_error_verbosity = default
+log_hostname = on
+log_line_prefix = '%t <%u:%d:%r>'
+log_lock_waits = off
+log_statement = 'ddl'
+log_temp_files = -1
+log_timezone = 'America/Caracas'
+log_parser_stats = on
+log_planner_stats = on
+log_executor_stats = on
+log_statement_stats = off
+temp_tablespaces = 'TEMP'
+datestyle = 'iso, dmy'
+timezone = 'America/Caracas'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+default_text_search_config = 'pg_catalog.english'
+
+vi /postgres/data/gysmo/pg_hba.conf
+
+Con el contenido:
+
+#
+# POSTGRES CONFIG FOR P2P ANALISIS DB SERVICES
+# SECURITY CONFIGURATION
+#
+
+# TYPE  DATABASE    USER        CIDR-ADDRESS          METHOD
+
+# "local" is for Unix domain socket connections only
+local   all         all                               trust
+# IPv4 local connections:
+host    all         all         127.0.0.1/32          trust
+host    all         all         172.16.0.0/16         md5
+
+#APL
+
+host    all         all         172.16.10.97/32         md5
+host    all         all         172.16.10.98/32         md5
+host    all         all         172.16.10.99/32         md5
+host    all         all         172.16.10.100/32        md5
+
+#  ACD
+
+host    gysmo_cc    gysmo_cc        172.16.10.136/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.104/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.105/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.106/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.161/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.162/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.163/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.164/32      md5
+
+### ASR SOLT22-05-2015
+
+host    gysmo_cc    gysmo_cc        172.16.10.181/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.182/32      md5
+
+# LOAD BALANCE IVR, APP,  BD
+
+host    all         all         172.16.10.140/32      md5
+host    all         all         172.16.10.67/32       md5
+host    all         all         172.16.10.202/32      md5
+host    gysmo       gysmo       172.16.10.226/32      md5
+host    gysmo_cc    gysmo_cc    172.16.10.225/32      md5
+
+#IVR
+host    all         all         172.16.10.116/32         md5
+host    all         all         172.16.10.117/32         md5
+host    all         all         172.16.10.118/32         md5
+host    all         all         172.16.10.119/32         md5
+
+
+#Urbina Conection
+host    all         postgres         10.1.231.0/24      md5
+host    all         postgres         10.1.235.0/24      md5
+
+#prueba
+host    all         postgres         172.16.30.9/24      md5
+
+Y finalmente:
+
+vi /postgres/data/gysmo_cc/pg_hba.conf
+
+Con el contenido:
+
+#
+# POSTGRES CONFIG FOR P2P ANALISIS DB SERVICES
+# SECURITY CONFIGURATION
+#
+
+# TYPE  DATABASE    USER        CIDR-ADDRESS          METHOD
+
+# "local" is for Unix domain socket connections only
+local   all         all                               trust
+# IPv4 local connections:
+host    all         all         127.0.0.1/32          trust
+host    all         all         172.16.0.0/16         md5
+
+#APL
+
+host    all         all         172.16.10.97/32         md5
+host    all         all         172.16.10.98/32         md5
+host    all         all         172.16.10.99/32         md5
+host    all         all         172.16.10.100/32        md5
+
+#  ACD
+
+host    gysmo_cc    gysmo_cc        172.16.10.136/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.104/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.105/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.106/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.161/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.162/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.163/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.164/32      md5
+
+### ASR SOLT22-05-2015
+
+host    gysmo_cc    gysmo_cc        172.16.10.181/32      md5
+host    gysmo_cc    gysmo_cc        172.16.10.182/32      md5
+
+# LOAD BALANCE IVR, APP,  BD
+
+host    all         all         172.16.10.140/32      md5
+host    all         all         172.16.10.67/32       md5
+host    all         all         172.16.10.202/32      md5
+host    gysmo       gysmo       172.16.10.226/32      md5
+host    gysmo_cc    gysmo_cc    172.16.10.225/32      md5
+
+#IVR
+host    all         all         172.16.10.116/32         md5
+host    all         all         172.16.10.117/32         md5
+host    all         all         172.16.10.118/32         md5
+host    all         all         172.16.10.119/32         md5
+
+
+#Urbina Conection
+host    all         postgres         10.1.231.0/24      md5
+host    all         postgres         10.1.235.0/24      md5
+
+#prueba
+host    all         postgres         172.16.30.9/24      md5
+
+Luego de tener los 4 archivos listos, hacemos una prueba de ejecución:
+
+pg_ctl start -D /postgres/data/gysmo/
+pg_ctl start -D /postgres/data/gysmo_cc/
+
+Con el comando siguiente podemos observar si los puertos levantaron:
+
+netstat -ltn|grep :99
+tcp        0      0 0.0.0.0:9911                0.0.0.0:*                   LISTEN      
+tcp        0      0 0.0.0.0:9912                0.0.0.0:*                   LISTEN      
+tcp        0      0 :::9911                     :::*                        LISTEN      
+tcp        0      0 :::9912                     :::*                        LISTEN
+
+Nos conectamos a ambos servicios de bases de datos y cambiamos el password administrativo de la cuenta postgres:
+
+psql -U postgres -h 127.0.0.1 -p 9911
+postgres=# ALTER ROLE postgres WITH PASSWORD 'P@ssw0rd';
+\q
+
+psql -U postgres -h 127.0.0.1 -p 9912
+postgres=# ALTER ROLE postgres WITH PASSWORD 'P@ssw0rd';
+\q
+
+Luego, en los archivos pg_hba.conf de ambos servicios se cambia la línea "trust" para 127.0.0.1 por "md5" y se reinician ambos servicios. La línea para "local" se deja en "trust" para que los respaldos funcionen:
+
+pg_ctl restart -D /postgres/data/gysmo_cc
+pg_ctl restart -D /postgres/data/gysmo
+
+Y nos conectamos a ambos servicios con el password "P@ssw0rd":
+
+psql -U postgres -h 127.0.0.1 -p 9911 -W
+psql -U postgres -h 127.0.0.1 -p 9912 -W
+
+Adicionalmente, desde una equipo externo, nos podemos conectar a la VIP:
+
+psql -h 172.16.10.210 -U postgres -p 9911 -W
+psql -h 172.16.10.210 -U postgres -p 9912 -W
+
+Bajamos ambas instancias:
+
+pg_ctl stop -D /postgres/data/gysmo_cc
+pg_ctl stop -D /postgres/data/gysmo
+
+Y salimos de la cuenta de postgres con exit
+
+En ambos servidores, se procede a crear el script de control:
+
+vi /usr/local/bin/postgres-p2p-control.sh
+
+Con el contenido:
+
+#!/bin/bash
+#
+# Postgres-P2P control script
+#
+
+postgresp2pdir="/postgres"
+postgresuser="postgres"
+basedir="/postgres/data/"
+#mydblist='
+#    gysmo
+#    gysmo_cc
+#'
+
+mydblist=`ls $basedir`
+
+myuser=`whoami`
+
+case $myuser in
+root)
+    mysucommand="su - $postgresuser -c "
+    ;;
+$postgresuser)
+    mysucommand="bash -c "
+    ;;
+*)
+    echo "Current user not root nor $postgresuser ... aborting !!"
+    exit 0
+    ;;
+esac
+
+PATH=$PATH:/usr/pgsql-9.4/bin/
+
+if [ ! -z $2 ]
+then
+    mydblist=$2
+fi
+
+case $1 in
+start)
+    echo ""
+    for i in $mydblist
+    do
+        echo "Starting Database Service: $i"
+        echo ""
+        $mysucommand "pg_ctl start -D /postgres/data/$i > /postgres/data/$i/startlog.log"
+        echo ""
+        echo "Status:"
+        $mysucommand "pg_ctl status -D /postgres/data/$i"
+    done
+    echo ""
+    ;;
+stop)
+    echo ""
+    for i in $mydblist
+    do
+        echo "Stopping Database Service: $i"
+        $mysucommand "pg_ctl stop -D /postgres/data/$i"
+    done
+    echo ""
+    ;;
+
+stopfast)
+        echo ""
+        for i in $mydblist
+        do
+                echo "Stopping Database Service - FAST MODE - : $i"
+                $mysucommand "pg_ctl stop -D /postgres/data/$i -m fast"
+        done
+        echo ""
+        ;;
+status)
+    echo ""
+    for i in $mydblist
+    do
+        echo ""
+        echo "Status of Database Service: $i"
+        $mysucommand "pg_ctl status -D /postgres/data/$i"
+        echo ""
+    done
+    echo ""
+    ;;
+restart)
+    echo ""
+    for i in $mydblist
+    do
+        echo "Restarting Database Service: $i"
+        echo ""
+        $mysucommand "pg_ctl restart -D /postgres/data/$i > /postgres/data/$i/startlog.log"
+        echo ""
+        $mysucommand "pg_ctl status -D /postgres/data/$i"
+        echo ""
+    done
+    echo ""
+    ;;
+*)
+    echo ""
+    echo "Usage: $0 start|stop|stopfast|status|restart"
+    echo ""
+    ;;
+esac
+
+Se salva el archivo y se hace ejecutable:
+
+chmod 755 /usr/local/bin/postgres-p2p-control.sh
+
+Y se modifica el archivo de control de heartbeat (también en ambos servidores):
+
+vi /etc/ha.d/resource.d/postgresp2p
+
+#!/bin/bash
+#
+
+PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
+case $1 in
+start|status)
+        echo "Starting Postgres P2P Services" > /var/log/ha-start.log
+        sleep 5 >> /var/log/ha-start.log
+        echo "Cleaning UP first with an stop" >> /var/log/ha-start.log
+        /usr/local/bin/postgres-p2p-control.sh stopfast >> /var/log/ha-start.log
+        /usr/local/bin/postgres-p2p-control.sh start >> /var/log/ha-start.log
+        ;;
+stop)
+        echo "Stopping Postgres P2P Services" > /var/log/ha-stop.log
+        /usr/local/bin/postgres-p2p-control.sh stopfast >> /var/log/ha-stop.log
+        ;;
+esac
+
+
+En este punto, los servicios de arranque de "gysmo" y "gysmo_cc" quedan activos. El script de control puede ser utilizado en el nodo activo para bajar todos los servicios, o sólo uno en específico. Ejemplo:
+
+
+postgres-p2p-control.sh stop: Baja todos los servicios activos.
+postgres-p2p-control.sh start: Sube todos los servicios activos.
+postgres-p2p-control.sh restart: Reinicia todos los servicios activos.
+postgres-p2p-control.sh status: Muestra el estado de todos los servicios.
+
+Los mismos comandos pueden ser utilizados para un servicio en específico. Ejemplo:
+
+postgres-p2p-control.sh stop gysmo: Baja el servicio gysmo
+postgres-p2p-control.sh start gysmo_cc: Sube el servicio gysmo_cc
+postgres-p2p-control.sh restart gysmo: Reinicia el servicio gysmo
+postgres-p2p-control.sh status gysmo_cc: Muestra el estado del servicio gysmo_cc.
+
+El script "postgres-p2p-control.sh" puede ser ejecutado por root o por la cuenta postgres. En cualquiera de los dos casos, los servicios subirán con la cuenta "postgres".
+
+Para agregar nuevos servicios, los mismos deben ser creados de la misma forma que gysmo y gysmo_cc. El script de manera automática ubica todos los servicios bajo /postgres/data/ y los trata de levantar.
+
+La modificación se debe hacer en ambos servidores.
+
+ 
+
+TAREAS DE LIMPIEZA Y RESPALDO.
+
+Limpieza de "archives":
+
+Para evitar que se acumulen "archives" de manera descontrolada, se crea el siguiente crontab en ambos servidores:
+
+vi /etc/cron.d/postgres-archive-cleanup-crontab
+
+Con el contenido:
+
+*/15 * * * * root [ -d /postgres/archive ] && for i in `ls /postgres/archive/`; do /bin/find /postgres/archive/$i -mmin +60 -name "*" -daystart -type f -print -delete;done > /var/log/last-postgres-archive-cleanup.log 2>&1
+
+Se salva el archivo y se recarga el crontab:
+
+service crond reload
+
+
+Limpieza de "logs":
+
+Para evitar que se acumulen logs de mas de 2 días de antiguedad, se crea el siguiente crontab en ambos servidores:
+
+vi /etc/cron.d/postgres-log-cleanup-crontab
+
+Con el contenido:
+
+15 */2 * * * root [ -d /postgres/log/ ] && /bin/find /postgres/log/ -name "*.log" -mtime +0 -daystart -print -delete > /var/log/last-postgres-log-cleanup.log 2>&1
+
+Se salva el archivo y se recarga el crontab:
+
+service crond reload
+
+
+Respaldos automáticos:
+
+En ambos servidores, se crea el siguiente script:
+
+vi /usr/local/bin/postgres-databases-backup.sh
+
+Con el contenido:
+
+#!/bin/bash
+#
+# Postgres-P2P backup script
+#
+
+postgresuser="postgres"
+postgresgroup="postgres"
+basedir="/postgres/data"
+backuplogs="/postgres/backup"
+backupdir="/mnt/db-backups"
+mydatespec=`date +%Y%m%d%H%M`
+myname=`hostname -s`
+daystoretain="15"
+
+logspec="$backuplogs/$myname-dumplog-$mydatespec.log"
+
+if [ -d $basedir ]
+then
+    myservicelist=`ls $basedir`
+else
+    echo ""
+    echo "No puedo acceder al directorio $basedir. Abortando"
+    echo ""
+    exit 0
+fi
+
+myuser=`whoami`
+
+case $myuser in
+root)
+    mysucommand="su - $postgresuser -c "
+    ;;
+$postgresuser)
+    mysucommand="bash -c "
+    ;;
+*)
+    echo "Current user not root nor $postgresuser ... aborting !!"
+    exit 0
+    ;;
+esac
+
+#
+# Si cambia la version de postgres, hay que determinar el path correcto
+# El siguiente path es para una instalacion via YUM en centos 6 usando
+# los repos oficiales de postgres 9.4
+#
+PATH=$PATH:/usr/pgsql-9.4/bin/
+
+#
+# Loop principal.
+# El loop pasa por todos los servicios, siempre y cuando tengan un
+# archivo de configuracion de postgres
+#
+for i in $myservicelist
+do
+    if [ -f $basedir/$i/postgresql.conf ]
+    then
+        #
+        # Determino el puerto donde se ejecuta el servicio
+        #
+        myport=`grep port.\*= $basedir/$i/postgresql.conf|awk '{print $3}'`
+        #
+        # Determino la lista de base de datos en el servicio
+        #
+        dblist=`$mysucommand "psql -U $postgresuser -p $myport -l -x"|grep -i name|awk '{print $3}'|grep -v template`
+        #
+        # Loop: Paso por todas las bases de dato, y trato de realizar el respaldo de cada una
+        #
+        for db in $dblist
+        do
+            if [ -d $backupdir ]
+            then
+                echo ""  >> $logspec
+                echo "Respaldando base de datos $db en servicio $i, puerto $myport"  >> $logspec
+                echo ""
+                echo "Respaldando base de datos $db en servicio $i, puerto $myport"
+                echo ""
+                echo "Archivo de respaldo: $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz"  >> $logspec
+                $mysucommand "pg_dump -U $postgresuser -p $myport -Z 9 $db" > \
+                    $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz
+            else
+                echo ""  >> $logspec
+                echo "No puedo acceder a $backupdir para crear el archivo de respaldo"  >> $logspec
+                echo ""  >> $logspec
+            fi
+            echo ""
+            if [ -f $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz ]
+            then
+                if [ $myuser == "root" ]
+                then
+                    chown $postgresuser.$postgresgroup $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz
+                fi
+                echo ""  >> $logspec
+                echo "Fue creado el archivo de respaldo $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz"  >> $logspec
+                echo "Fue creado el archivo de respaldo $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz"
+                echo ""  >> $logspec
+            else
+                echo ""  >> $logspec
+                echo "No se pudo crear el archivo de respaldo: $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz"  >> $logspec
+                echo "No se pudo crear el archivo de respaldo: $backupdir/$myname-pgdump-$i-$myport-database-$db-$mydatespec.gz"
+                echo ""  >> $logspec
+            fi
+            echo ""
+        done
+        #
+        # Aqui termina el loop para cada base de datos del servicio en el loop principal
+        #
+    fi
+done
+#
+# Aqui termina el loop principal
+#
+
+if [ $myuser == "root" ]
+then
+    chown $postgresuser.$postgresgroup $logspec
+fi
+
+#
+# Ahora, procedemos a limpiar los archivos mas viejos que "daystoretain"
+# tanto respaldos como logs.
+#
+
+find $backupdir -name "$myname-pgdump-*-database-*.gz" -mtime +$daystoretain -delete
+find $backuplogs -name "$myname-dumplog-*.log" -mtime +$daystoretain -delete
+
+#
+# FIN
+#
+
+Se salva el archivo y se hace ejecutable:
+
+chmod 755 /usr/local/bin/postgres-databases-backup.sh
+
+Se crea el directorio para los respaldos:
+
+mkdir /mnt/db-backups/
+
+NOTA: En condiciones de producción, este directorio debería apuntar a una NAS vía NFS o CIFS para dejar los respaldos asegurados fuera del servidor.
+
+Y se hace el directorio propiedad de postgres:
+
+chown postgres.postgres /mnt/db-backups/
+
+Se crea el crontab que ejecutará el comando todos los días a la 1am:
+
+vi /etc/cron.d/postgres-backup-crontab
+
+Contenido:
+
+10 01 * * * root /usr/local/bin/postgres-databases-backup.sh > /var/log/last-postgres-backup.log 2>&1
+
+Se salva el archivo y se recarga el crontab:
+
+service crond reload
+
+En este punto, ya el cluster tiene los servicios de mantenimiento necesarios para los "archives" y los respaldos automatizados.
+
+FIN.-

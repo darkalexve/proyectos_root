@@ -1,0 +1,612 @@
+INSTALACION DE ZABBIX 3.0
+
+Objetivo: Instalar el aplicativo de Monitoreo Zabbix en su version 3.0 para garantizar el control total del estado de los servidores en Tiempo Real a TODO momento.
+
+Alcance: Todos los servidores físicos de todas las sedes y virtuales de las nubes OpenStack, el servidor APL y DB deben ser Centos 7 x64 con todos los update hasta la fecha.
+
+Servidor APL: 172.16.31.130
+Servidor DB:  172.16.31.131
+
+El Servidor APL cuenta con un disco efimero de 20 GB para /postgres.
+
+Vamos al Servidor APL (172.16.31.130):
+
+Configuramos el repositorio:
+
+rpm -ivh http://repo.zabbix.com/zabbix/3.0/rhel/7/x86_64/zabbix-release-3.0-1.el7.noarch.rpm
+
+Instalando Paquetes:
+
+yum update
+yum -y install zabbix-server-pgsql.x86_64 zabbix-web-pgsql.noarch
+
+rpm -Uvh http://yum.postgresql.org/9.4/redhat/rhel-7-x86_64/pgdg-centos94-9.4-2.noarch.rpm
+
+yum update
+yum install postgresql94-libs postgresql94
+rpm -qa|grep postgres
+yum erase postgresql-libs
+
+Creamos la Base de Datos, para esto nos vamos al servidor DB (172.16.31.131)
+
+Configuramos el disco Efimero
+
+fdisk /dev/vdc
+
+Precionamos:
+
+n
+p
+enter
+enter
+enter
+w
+
+sync
+
+Luego ejecutamos:
+
+fdisk -l /dev/vdc
+
+Deberiamos ver lo siguiente:
+
+[root@vm-172-16-31-131 ~]# fdisk -l /dev/vdc
+
+Disk /dev/vdc: 21.5 GB, 21474836480 bytes, 41943040 sectors
+Units = sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disk label type: dos
+Disk identifier: 0x48949f2e
+
+   Device Boot      Start         End      Blocks   Id  System
+/dev/vdc1            2048    41943039    20970496   83  Linux
+
+
+Vamos a darle formato al disco:
+
+mkfs.ext4 -L postgres /dev/vdc1
+
+Creamos la carpeta postgres para asignar el espacio en disco creado a esta carpeta.
+
+cd /
+mkdir postgres
+
+Editamos:
+
+vi /etc/fstab
+
+Añadimos de ultimo el siguiente contenido:
+
+#
+# Disco Efimero para postgres
+LABEL=postgres               /postgres                  ext4            defaults        1 2
+#
+#
+
+Guardamos cambios.
+
+mount -a 
+df -h
+
+Deberiamos ver lo siguiente:
+
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        30G  2.0G   26G   8% /
+devtmpfs        911M     0  911M   0% /dev
+tmpfs           920M     0  920M   0% /dev/shm
+tmpfs           920M  8.6M  912M   1% /run
+tmpfs           920M     0  920M   0% /sys/fs/cgroup
+/dev/vda1       240M  136M   88M  61% /boot
+tmpfs           184M     0  184M   0% /run/user/0
+/dev/vdc1        20G   45M   19G   1% /postgres
+
+Configuramos el Servidor:
+
+En el /etc/sysctl.conf se agregaron/cambiaron los siguientes items:
+
+kernel.shmmax = 17179869184
+kernel.shmall = 2147483648
+kernel.sem = 500 32000 300 1500
+
+En el archivo /etc/security/limits.conf se agrega al final:
+
+   postgres soft nofile 1024
+   postgres hard nofile 65536
+
+   postgres soft nproc 4094
+   postgres hard nproc 16384
+
+   postgres soft stack 10240
+   postgres hard stack 32768
+
+Se salva el archivo.
+
+Se Procede a agregar el repositorio POSTGRES94
+
+rpm -Uvh http://yum.postgresql.org/9.4/redhat/rhel-7-x86_64/pgdg-centos94-9.4-2.noarch.rpm
+
+yum clean all; yum -y update
+
+Con el repositorio POSTGRES94 instalado, procedemos (en el orden que aparece a continuación) a ejecutar los siguientes comandos. De nuevo, el ORDEN es muy importante.
+
+groupadd -g 26 -o -r postgres
+useradd -M -n -g postgres -o -r -d /var/lib/pgsql -s /bin/bash -c "PostgreSQL Server" -u 26 postgres
+
+yum install postgresql94 postgresql94-contrib postgresql94-devel postgresql94-docs postgresql94-libs postgresql94-plperl postgresql94-plpython postgresql94-pltcl postgresql94-server postgresql94-python pg_top htop pgbadger nmon stress
+
+mkdir -p /postgres/archive
+mkdir -p /postgres/archive/zabbix
+mkdir -p /postgres/backup
+mkdir -p /postgres/data
+mkdir -p /postgres/data/zabbix
+mkdir -p /postgres/log
+mkdir -p /postgres/log/zabbix
+mkdir -p /postgres/temporal
+mkdir -p /postgres/wall
+
+Cambiamos la permisología de los directorio de manera recursiva:
+
+chown -R postgres.postgres /postgres
+
+Continuamos la creación de directorios, pero estos quedarán bajo root.root:
+
+mkdir -p /postgres/binario
+
+Y se crea el siguiente link symbólico:
+
+ln -s /usr/pgsql-9.4 /postgres/binario/9.4.5
+
+Configuración de POSTGRES:
+
+Completamos el perfil de postgres para que pueda ver el PATH completo de los comandos de base de datos:
+
+echo "source /etc/bashrc" > /var/lib/pgsql/.pgsql_profile
+echo "export PATH=\$PATH:/usr/pgsql-9.4/bin/" >> /var/lib/pgsql/.pgsql_profile
+chown postgres.postgres /var/lib/pgsql/.pgsql_profile
+
+
+Y cambiamos el password del usuario postgres a 123456 en ambos nodos:
+
+echo "postgres:123456"|chpasswd
+
+su - postgres
+
+Creamos la base de datos:
+
+initdb -D /postgres/data/zabbix
+
+Y se ejecutan los siguientes comandos para reapuntar los directorios px_log de ambas bases de datos:
+
+mv /postgres/data/zabbix/pg_xlog /postgres/wall/zabbix
+ln -s /postgres/wall/zabbix /postgres/data/zabbix/pg_xlog
+
+Se ejecutan los siguientes comandos para salvar las configuraciones originales:
+
+mv /postgres/data/zabbix/postgresql.conf /postgres/data/zabbix/postgresql.conf.ORIGINAL
+mv /postgres/data/zabbix/pg_hba.conf /postgres/data/zabbix/pg_hba.conf.ORIGINAL
+
+vi /postgres/data/zabbix/postgresql.conf
+
+#
+# POSTGRES CONFIG FOR P2P ANALISIS DB SERVICES
+#
+autovacuum = off                                        #No existía esta línea originalmente
+statement_timeout=600000                                #No existía esta línea originalmente
+listen_addresses = '*'
+port = 5414
+max_connections = 2000
+superuser_reserved_connections = 6
+password_encryption = on
+shared_buffers = 2048MB                                 #Original de Geraldine: shared_buffers = 2048MB
+temp_buffers = 8192                                     #Original de Geraldine: temp_buffers = 128MB
+work_mem = 10240                                        #Original de Geraldine: work_mem = 32MB
+maintenance_work_mem = 409600                           #Original de Geraldine: maintenance_work_mem = 64MB
+effective_cache_size = 4194304                          #Original de Geraldine: effective_cache_size = 4GB
+dynamic_shared_memory_type = posix
+shared_preload_libraries = '$libdir/passwordcheck,$libdir/pg_stat_statements'
+max_worker_processes = 8
+wal_level = minimal                                     #RRMP: Original de Geraldine: wal_level = hot_standby
+fsync = on
+synchronous_commit = on
+wal_sync_method = fdatasync
+wal_log_hints = off
+wal_buffers = -1
+wal_writer_delay = 200ms
+commit_delay = 0
+commit_siblings = 5
+checkpoint_segments = 60                                #Original de Geraldine: checkpoint_segments = 6
+checkpoint_timeout = 5min
+checkpoint_completion_target = 0.5
+checkpoint_warning = 30s
+archive_mode = off                                                      #RRMP: Original de Geraldine: archive_mode = on
+#archive_command = 'cp  %p  /postgres/archive/zabbix/%f </dev/null'   #RRMP
+archive_timeout = 60
+max_wal_senders = 0                                                     #RRMP: Original de Geraldine: max_wal_senders = 6
+wal_keep_segments = 64
+hot_standby = on
+max_standby_archive_delay = 30s
+max_standby_streaming_delay = 30s
+wal_receiver_status_interval = 10s
+hot_standby_feedback = off
+wal_receiver_timeout = 60s
+log_destination = 'stderr'
+logging_collector = off
+log_directory = '/postgres/log/zabbix'
+log_filename= 'psqlzabbix-%Y%m%d.log'           #Original de Geraldine: log_filename = 'psqlzabbix-%Y%m%d.log'
+log_file_mode = 0600
+log_rotation_age = 1d                                   #Original de Geraldine: log_rotation_age = 1d
+log_rotation_size = 100MB                               #Original de Geraldine: log_rotation_size = 100MB
+log_checkpoints = off
+log_connections = off
+log_disconnections = off
+log_duration = off
+#log_error_verbosity = verbose                          #Sólo para activar el debuging de Queries con pgbadger
+log_error_verbosity = terse
+log_hostname = off
+#log_line_prefix = '%t [%p]: [%l-1] db=%d,user=%u '     #Sólo para activar el debuging de Queries con pgbadger
+log_line_prefix = '%t <%u:%d:%r>'
+log_lock_waits = on
+#log_min_duration_statement = 0                         #Sólo para activar el debuging de Queries con pgbadger
+log_min_duration_statement = 100000
+#log_statement = 'all'                                  #Sólo para activar el debuging de Queries con pgbadger
+log_statement = 'none'
+#log_temp_files = 0                                     #Sólo para activar el debuging de Queries con pgbadger
+log_temp_files = -1
+log_timezone = 'America/Caracas'
+log_parser_stats = off
+log_planner_stats = off
+log_executor_stats = off
+log_statement_stats = off
+temp_tablespaces = 'TEMP'
+datestyle = 'iso, dmy'
+timezone = 'America/Caracas'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+default_text_search_config = 'pg_catalog.english'
+
+guardamos cambios.
+
+vi /postgres/data/zabbix/pg_hba.conf
+
+#
+# POSTGRES CONFIG FOR P2P ANALISIS DB SERVICES
+# SECURITY CONFIGURATION
+#
+
+# TYPE  DATABASE    USER        CIDR-ADDRESS          METHOD
+
+# "local" is for Unix domain socket connections only
+local   all         all                               trust
+# IPv4 local connections:
+host    all         all         127.0.0.1/32          trust
+host    all         all         172.16.0.0/16         md5
+
+#APL
+
+host    all         all         172.16.31.130/32         md5
+
+#prueba
+host    all         postgres         172.16.30.9/24      md5
+
+Luego de tener el archivo listo, hacemos una prueba de ejecución:
+
+
+pg_ctl start -D /postgres/data/zabbix/
+
+Con el comando siguiente podemos observar si los puertos levantaron:
+
+[postgres@vm-172-16-31-131 ~]$ ss -ltn|grep :54
+LISTEN     0      128          *:5414                     *:*                  
+LISTEN     0      128         :::5414                    :::* 
+
+
+psql -U postgres -h 127.0.0.1 -p 5414
+postgres=# ALTER ROLE postgres WITH PASSWORD 'P@ssw0rd';
+\q
+
+ Luego, en el archivo pg_hba.conf se cambia la línea "trust" para 127.0.0.1 por "md5" y se reinicia el servicio. La línea para "local" se deja en "trust" para que los respaldos funcionen:
+
+pg_ctl restart -D /postgres/data/zabbix
+
+ Y nos conectamos a ambos servicios con el password "P@ssw0rd":
+
+psql -U postgres -h 127.0.0.1 -p 5414 -W
+
+ Bajamos ambas instancias:
+
+pg_ctl stop -D /postgres/data/zabbix
+
+Salimos de la cuenta postgres con exit.
+
+Se procede a crear el script de control:
+
+vi /usr/local/bin/postgres-p2p-control.sh
+
+Con el contenido:
+
+#!/bin/bash
+#
+# Postgres-P2P control script
+#
+
+postgresp2pdir="/postgres"
+postgresuser="postgres"
+basedir="/postgres/data/"
+#mydblist='
+#    gysmo
+#    gysmo_cc
+#'
+
+mydblist=`ls $basedir`
+
+myuser=`whoami`
+
+case $myuser in
+root)
+    mysucommand="su - $postgresuser -c "
+    ;;
+$postgresuser)
+    mysucommand="bash -c "
+    ;;
+*)
+    echo "Current user not root nor $postgresuser ... aborting !!"
+    exit 0
+    ;;
+esac
+
+PATH=$PATH:/usr/pgsql-9.4/bin/
+
+if [ ! -z $2 ]
+then
+    mydblist=$2
+fi
+
+case $1 in
+start)
+    echo ""
+    for i in $mydblist
+    do
+        echo "Starting Database Service: $i"
+        echo ""
+        $mysucommand "pg_ctl start -D /postgres/data/$i > /postgres/data/$i/startlog.log"
+        echo ""
+        echo "Status:"
+        $mysucommand "pg_ctl status -D /postgres/data/$i"
+    done
+    echo ""
+    ;;
+stop)
+    echo ""
+    for i in $mydblist
+    do
+        echo "Stopping Database Service: $i"
+        $mysucommand "pg_ctl stop -D /postgres/data/$i"
+    done
+    echo ""
+    ;;
+
+stopfast)
+        echo ""
+        for i in $mydblist
+        do
+                echo "Stopping Database Service - FAST MODE - : $i"
+                $mysucommand "pg_ctl stop -D /postgres/data/$i -m fast"
+        done
+        echo ""
+        ;;
+status)
+    echo ""
+    for i in $mydblist
+    do
+        echo ""
+        echo "Status of Database Service: $i"
+        $mysucommand "pg_ctl status -D /postgres/data/$i"
+        echo ""
+    done
+    echo ""
+    ;;
+restart)
+    echo ""
+    for i in $mydblist
+    do
+        echo "Restarting Database Service: $i"
+        echo ""
+        $mysucommand "pg_ctl restart -D /postgres/data/$i > /postgres/data/$i/startlog.log"
+        echo ""
+        $mysucommand "pg_ctl status -D /postgres/data/$i"
+        echo ""
+    done
+    echo ""
+    ;;
+*)
+    echo ""
+    echo "Usage: $0 start|stop|stopfast|status|restart"
+    echo ""
+    ;;
+esac
+
+Se salva el archivo y se hace ejecutable:
+
+chmod 755 /usr/local/bin/postgres-p2p-control.sh
+
+Finalizada la instalacion de la DB
+
+Vamos a Crear la Base de Datos para Zabbix:
+
+echo "CREATE user zabbix;" | psql -U postgres --host 127.0.0.1 -p 5414
+echo "ALTER user zabbix with password 'P@ssw0rd';" | psql -U postgres --host
+127.0.0.1 -p 5414
+echo "CREATE DATABASE zabbix" | psql -U postgres --host 127.0.0.1 -p 5414
+echo "GRANT ALL PRIVILEGES ON database zabbix TO zabbix;"| psql -U postgres
+--host 127.0.0.1 -p 5414
+
+La base de datos queda creada con la siguiente información:
+DB: zabbix
+Usuario: zabbix
+Pass: P@ssw0rd
+
+Procedemos a optimizar el servidor DB con Tunned 
+
+Se instala tuned:
+
+yum install tuned tuned-utils
+
+Se crea un nuevo perfil para tuned:
+
+mkdir /etc/tuned/custom-thp
+
+Y se crea el archivo:
+
+vi /etc/tuned/custom-thp/tuned.conf
+
+Con el contenido:
+
+[main]
+include=virtual-guest
+
+[vm]
+transparent_hugepages=never
+
+[script]
+script=script.sh
+
+Se salva el archivo.
+
+Se crea el script:
+
+vi /etc/tuned/custom-thp/script.sh
+
+Con el contenido:
+
+#!/bin/sh
+
+. /usr/lib/tuned/functions
+
+start() {
+    echo never > /sys/kernel/mm/transparent_hugepage/defrag
+    return 0
+}
+
+stop() {
+    return 0
+}
+
+process $@
+
+Se salva el script y se hace ejecutable:
+
+chmod 755 /etc/tuned/custom-thp/script.sh
+
+Se activa el perfil y se activa tuned para boot-time:
+
+tuned-adm profile custom-thp
+
+systemctl enable tuned
+systemctl restart tuned
+systemctl status tuned
+
+En este punto, todas las características relativas a "Transparent Huge Pages" quedan desactivadas.
+
+
+Volvemos al Servidor APL 172.16.31.130
+
+Editamos /etc/zabbix/zabbix_server.conf
+
+Buscamos las siguientes lineas y las dejamos de la siguiente manera:
+
+DBHost=172.16.31.131
+DBName=zabbix
+DBUser=zabbix
+DBPassword=P@ssw0rd
+DBPort=5414
+# DBSocket=/tmp/mysql.sock
+# DBSocket=/var/lib/mysql/mysql.sock
+
+Guardamos Cambios.
+
+(las dos ultimas lineas comentarlas, en el documento original salen descomentadas, se debe hacer esto ya que por defecto Zabbix requiere MySQL, al comentarlas evitamos un error del instalador web.)
+
+Seguimos:
+
+echo "*:*:*:zabbix:P@ssw0rd" >> /root/.pgpass
+cd /usr/share/doc/zabbix-server-pgsql-3.0.0/
+gunzip create.sql.gz
+psql -U zabbix --host 172.16.31.131 -p 5414 zabbix < ./create.sql
+
+systemctl stop zabbix-server.service
+systemctl start zabbix-server.service
+
+Editamos el sudoers para el usuario Zabbix:
+
+vim /etc/sudoers.d/zabbix
+
+Defaults:zabbix !requiretty
+Defaults:zabbixsrv !requiretty
+
+zabbix		ALL=(ALL)	NOPASSWD:ALL
+zabbixsrv	ALL=(ALL)	NOPASSWD:ALL
+
+Se salva el archivo y se le cambia la permisología:
+
+chmod 0440 /etc/sudoers.d/zabbix
+
+Se ingresa al servidor para completar la configuración:
+
+http://172.16.31.130/zabbix
+
+Se entrará a la página de setup. Se hace click en "next" en el primer slide.
+
+La siguiente pantalla muestra los prerequisitos. Si todo está bien, se hace click en next. Si no, corregir hasta que salga todo OK y se hace click en next.
+
+El tercer slide es para la base de datos. Se colocan los datos siguientes:
+
+Database Type: PostgreSQL
+Database Host: 172.16.31.131
+Database Port: 5414
+Database Name: zabbix
+User: zabbix
+Password: P@ssw0rd
+
+Se hace click en next.
+
+En el siguiente slide se colocan los datos del servidor Zabbix. Como el servidor y el front-end web están en la misma máquina, se dejan los datos:
+
+Host: localhost
+Port: 10051
+Name: No se coloca nada aquí
+
+Se hace click en NEXT. Se mostrará el sumario de pre-instalación. Si estamos conformes, se hace click en Next.
+
+La configuración (según indica la página) queda en "/etc/zabbix/web/zabbix.conf.php". De nuevo, se hace click en "next".
+
+En la siguiente página, se ingresa con el login administrativo por defecto:
+Usuario: Admin
+Pass: zabbix
+
+la "A" es mayúscula. Se recomienda entrar la primera vez con Chrome si firefox
+insiste en colocar "admin" en lugar de "Admin". Luego, se debe tratar de cambiar
+"Admin" por "admin" en la configuración.
+
+Instalación de agente.
+
+Se procede a instalar el Agente zabbix para automonitorear el servidor:
+
+yum install zabbix-agent
+
+Luego, en la interfaz WEB, se activa el monitoreo del servidor Zabbix.
+
+systemctl start zabbix-agent
+systemctl enable zabbix-agent
+systemctl enable zabbix-server
+
+
+FIN.-
+
+
+
+
+
+

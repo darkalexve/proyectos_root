@@ -1,0 +1,117 @@
+MIGRACION DE SERVIDORES FISICOS (LINUX) A VIRTUALES PARA KVM (OPENSTACK, KVM PURO, PROXMOX, CLOUDSTACK)
+
+Objetivo: Migrar un servidor fisico Debian 7 a Virtual para utilizarlo con OpenStack
+
+Alcance: Se requiere tener un servidor Centos 6 x64 para realizar el brigde y este debe tener un espacio suficiente igual al tamaño en disco (en uso) del servidor real, se debe tener acceso root y por supuesto al mismo servidor que sera migrado.
+
+Procedimientos:
+
+Servidor Puente: 172.16.31.48 | Centos 6 x64 | Disco Efimero de 15 GB para almacenar el servidor migrado.
+
+A este servidor Puente se le hace lo siguiente:
+
+yum install virt-p2v virt-v2v libvirt libvirt-client qemu-img qemu-kvm
+
+
+Se modifica el archivo siguiente:
+
+vi /etc/virt-v2v.conf
+
+Se incluye justo al final, antes de "</virt-v2v>":
+
+<profile name="debian">
+  <method>libvirt</method>
+  <storage format='qcow2' allocation='sparse'>default</storage>
+  <network type='default'>
+  <network type='network' name='default'/>
+  </network>
+</profile>
+
+En el mismo servidor se levanta el servicio libvirt:
+
+/etc/init.d/libvirtd start
+
+Se ingresa al "virsh" para crear el storage pool con los siguientes comandos:
+
+# virsh
+
+pool-define-as --name default --type dir --target /var/lib/libvirt/storage
+pool-autostart default
+pool-build default
+pool-start default
+
+Salimos de virsh con "exit"
+
+NOTA: En este punto es importante que el directorio "/var/lib/libvirt/storage" tenga capacidad para almacenar el disco QCOW2 que será creado al migrar la máquina real.
+
+Para el caso de este LAB, se utilizo un disco efimero de 15 GB montado en el servidor puente como particion en /migra
+
+Para lograr esto (luego de creado el disco efimero y atachado desde horizon a la instancia)
+
+fdisk /dev/vdc (siendo vdc el disco adicional segun lo que viste en fdisk -l)
+
+para ayuda: m
+
+-p para print de lista de particiones (al ser nueva la particion no deberia haber ninguna) OJO: si no hay ninguna particion, creala como primaria.
+
+-n para añadir nueva particion
+
+-w para escribir los cambios
+
+-q para salir
+
+hecho esto debiste crear la particion primaria y deberia quedar como vdc1
+
+Luego
+
+Le damos formato al disco
+
+mkfs.ext4 -L migracion /dev/vdc1
+
+Montamos el disco:
+
+cd /
+mkir migra
+
+vi /etc/fstab
+
+Añadimos en la ultima linea esto:
+
+/dev/vdc1               /migra            ext4    defaults        1 2
+
+guardamos y cerramos.
+
+Luego ejecutamos 
+
+mount /migra
+
+Si hacemos df -h se deberia ver el disco 
+
+Ahora haremos que /var/lib/libvirt/storage apunte al disco /migra
+
+cd /
+ln -s /migra /var/lib/libvirt/storage
+cd /var/lib/libvirt/
+
+En este punto haciendo ls -la deberiamos ver algo asi:
+
+lrwxrwxrwx   1 root root    6 Jan  6 15:08 storage -> /migra
+
+Con esto garantizamos el espacio suficiente para guardar el servidor que vamos a migrar, te puedes ahorrar estos pasos si /var/ cuenta con espacio suficiente, de lo contrario es aconsejable que lo hagas.
+
+En el servidor centos, se ubica el siguiente archivo:
+
+/usr/share/virt-p2v/virt-p2v-0.9.1-2.20130730.1.el6.centos.iso
+
+O si no está con ese nombre, ubicar el iso bajo el directorio "/usr/share/virt-p2v/"
+
+Con ese ISO se genera un cd booteable o un usb booteable o se arranca como ISO, muevela a tu pc con scp, una vez la obtengas debes arrancar el servidor que desees migrar reiniciandolo desde esa ISO (con las consecuencias que conllevan un apagado del servidor lease: Produccion) 
+
+Una vez arranques el servidor con la ISO antes descargada, El utilitario pedirá la IP y password de root del servidor puente (el centos 6.x). Luego presentará una pantalla donde se podrá empezar el proceso de migración.
+
+La máquina (o sus discos duros) serán almacenados en el directorio especificado en el pool de almacenamiento de libvirt (para nuestro caso, /var/lib/libvirt/storage) en formato qcow2.
+
+Nota: En el apartado Name pon el nombre de la imagen con su extension, ejemplo: debiantest-sda.qcow2
+
+En este punto ya finalizamos, tendras tu disco qcow2 listo para ser arrancado desde el KVM o cargado a Glance si usas OpenStack. 
+

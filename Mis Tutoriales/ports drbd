@@ -1,0 +1,20 @@
+Intra Cluster DRBD Warehouse Data
+
+Desde el Controller01
+
+source /root/keystonerc_admin
+
+neutron port-create --fixed-ip ip_address=172.16.11.201 --security-group DRBD --security-group Postgres --security-group Heartbeat net-vlan-11
+
+ID del Puerto de la VIP: 5bf9440a-dc82-49d9-81d7-ecd68504ca6c
+
+Puerto del Nodo Principal 	172.16.10.128: 7a8e7be4-eac9-4b29-967b-f94721f13192
+Puerto del Nodo Secundario	172.16.11.130: be196a09-e396-4a11-bfc7-54644202eae0
+
+Atachamos la VIP con los dos puertos de los dos nodos
+
+neutron port-update 7a8e7be4-eac9-4b29-967b-f94721f13192 --allowed_address_pairs list=true type=dict ip_address=172.16.11.201
+
+neutron port-update be196a09-e396-4a11-bfc7-54644202eae0 --allowed_address_pairs list=true type=dict ip_address=172.16.11.201
+
+

@@ -1,0 +1,153 @@
+LAB-CLUSTERIZACION DE DEBIAN 7 CON APACHE Y HEARTBEAT
+
+Ambiente Base:
+
+Servidores Debian 7 CLOUD (arquitectura x86_64) con iptables off. UPDATES HASTA LA FECHA !!.
+
+VM's sobre OpenStack Kilo AT con 2 cores, 1 GB de ram, 2 GB de swap.
+
+IPs:
+
+Nodo 1: Principal: 172.16.31.45 
+Nodo 2: Principal: 172.16.31.44 
+
+Las interfaces fueron reconfiguradas a nivel de S/O en modo estático (no-dhcp) en /etc/network/interfaces para evitar posibles problemas de intermitencia de tráfico y evitar dependencia con el servicio DHCP de OpenStack/Neutron.
+
+En el archivo /etc/hosts de ambos equipos se colocaron las siguientes entradas:
+
+#
+# Para Heartbeat
+#
+172.16.31.45 vm-172-16-31-45 vm-172-16-31-45.cloud0.at.p2p.dom
+172.16.31.44 vm-172-16-31-44 vm-172-16-31-44.cloud0.at.p2p.dom
+#
+#
+#
+
+Se configuró relación de confianza bi-direccional para el usuario root entre ambos equipos con los comandos ssh-keygen y ssh-copy-id.
+
+Se configuró en ambos servidores el siguiente archivo:
+
+vi /root/.ssh/config
+
+Con el contenido:
+
+Host *
+StrictHostKeyChecking no
+UserKnownHostsFile=/dev/null
+
+Y se le cambia el modo:
+
+chmod 600 /root/.ssh/config
+
+Se elimina cualquier archivo "known_host" previamente existente:
+
+rm -f /root/.ssh/known_hosts
+
+apt-get install apache2
+apt-get install heartbeat
+
+Para el servicio intra-cluster se utilizará la siguiente IP: 172.16.31.202. La misma debe ser asignada en OpenStack (controller 172.16.1.189) con los siguientes comandos:
+
+neutron port-create --fixed-ip ip_address=172.16.31.202 --security-group FULLACCESS netvlan31
+
+Esto crea el puerto de ID: 30e15501-9699-48c4-8f7f-25fe3d40a172
+
+Se obtienen los puertos asignados a las IP's 172.16.31.45 y 172.16.31.44:
+
+neutron port-list|grep 172.16.31.45|awk '{print $2}'
+e4c40f6a-635d-43bf-869e-b34a472f547d
+
+neutron port-list|grep 172.16.31.44|awk '{print $2}'
+80018006-2494-4fd9-a1be-52bb76e20a52
+
+Y con la información obtenida, ejecutamos el siguiente comando:
+
+neutron port-update e4c40f6a-635d-43bf-869e-b34a472f547d --allowed_address_pairs list=true type=dict ip_address=172.16.31.202
+neutron port-update 80018006-2494-4fd9-a1be-52bb76e20a52 --allowed_address_pairs list=true type=dict ip_address=172.16.31.202
+
+Ya con los puertos creados, procedemos a configurar heartbeat en ambos nodos:
+
+cp /usr/share/doc/heartbeat/authkeys /etc/heartbeat/
+chmod 600 /etc/heartbeat/authkeys
+echo "auth 1" >> /etc/heartbeat/authkeys
+echo "1 sha1 Th1S1sMyP@ssW0rD-@nd-Is-0nL7-M1n3" >> /etc/heartbeat/authkeys
+
+
+En el Nodo 1:
+
+vi /etc/heartbeat/ha.cf
+
+logfile /var/log/ha-log
+logfacility local0
+keepalive 2
+deadtime 30
+initdead 120
+udpport 694
+auto_failback off
+node vm-172-16-31-44.cloud0.at.p2p.dom
+node vm-172-16-31-45.cloud0.at.p2p.dom
+ucast eth0 172.16.31.44
+auto_failback on
+
+guardamos y cerramos
+
+En el Nodo 2:
+
+vi /etc/heartbeat/ha.cf
+
+logfile /var/log/ha-log
+logfacility local0
+keepalive 2
+deadtime 30
+initdead 120
+udpport 694
+auto_failback off
+node vm-172-16-31-44.cloud0.at.p2p.dom
+node vm-172-16-31-45.cloud0.at.p2p.dom
+ucast eth0 172.16.31.45
+auto_failback on
+
+En ambos servidores
+
+vi /etc/ha.d/haresources
+
+vm-172-16-31-45.cloud0.at.p2p.dom IPaddr::172.16.31.202/24/eth0:0 lab-control
+
+Donde 172.16.31.202 es la VIP de Servicio que previamente debes crear en OpenStack
+
+Luego en ambos servidores
+
+vi /etc/ha.d/resource.d/lab-control
+
+#!/bin/bash
+#
+
+case $1 in
+start)
+        echo "Starting LAB Services"
+        /etc/init.d/apache2 start
+        ;;
+stop)
+        echo "Stopping LAB Services"
+        /etc/init.d/apache2 stop
+        ;;
+status)
+        echo "LAB STATUS"
+        /etc/init.d/apache2 status
+
+        ;;
+esac
+
+chmod 755 /etc/ha.d/resource.d/lab-control
+
+Finalmente, en ambos servidores se procede a activar el servicio heartbeat con los siguientes comandos:
+
+/etc/init.d/heartbeat start
+update-rc.d heartbeat enable
+
+En este punto, todos los servicios de cluster para la IP 172.16.31.202 procederán a subir en el master "vm-172-16-31-45.cloud0.at.p2p.dom".
+
+
+
+

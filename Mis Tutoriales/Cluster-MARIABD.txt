@@ -1,0 +1,125 @@
+INSTALACION Y CREACION DEL CLUSTER MARIADB-GALERA EN CENTOS 7 (SERVIDORES WEB/SOGO)
+
+Pre-requisitos:
+
+1.- Repositorio oficial de MariaDB/Galera 5.5.x instalado en el servidor.
+2.- Paquetes de mariadb-galera instalados previamente con el comando siguiente:
+
+yum install galera MariaDB-Galera-server mariadb
+
+Servidores:
+
+172.16.10.146
+172.16.10.149
+
+Se activa mysql (mariadb) en ambos nodos:
+
+/etc/init.d/mysql start
+chkconfig mysql on
+
+Password de root que se configurará (root de mariadb):
+
+R0cK3t-R3inD3rs
+
+(se ejecuta mysql_secure_installation en ambos nodos)
+
+El usuario root se le permite conexión remota (desde mysql_secure_installation)
+
+vi /root/.my.cnf
+
+Con el contenido siguiente:
+
+[client]
+user = "root"
+password = "R0cK3t-R3inD3rs"
+host = "localhost"
+
+Y se le cambia la permisología:
+
+chmod 600 /root/.my.cnf
+
+Se ingresa como root con el comando "mysql" y se ejecuta el siguiente comando "SQL":
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'R0cK3t-R3inD3rs' WITH GRANT OPTION;
+MariaDB [(none)]> FLUSH PRIVILEGES;
+MariaDB [(none)]> exit
+
+En ambos nodos se baja la base de datos:
+
+/etc/init.d/mysql stop
+
+
+En el NODO 01 (172.16.10.146) se crea la configuración del cluster:
+
+vi /etc/my.cnf.d/cluster.cnf
+
+[mysqld]
+binlog_format=ROW
+default-storage-engine=innodb
+innodb_autoinc_lock_mode=2
+query_cache_type=0
+query_cache_size=0
+bind-address=0.0.0.0
+max_allowed_packet=1024M
+max_connections=1000
+
+# Galera Provider Configuration
+wsrep_provider=/usr/lib64/galera/libgalera_smm.so
+#wsrep_provider_options="gcache.size=32G"
+
+# Galera Cluster Configuration
+wsrep_cluster_name="CorreoCorp"
+wsrep_cluster_address="gcomm://172.16.10.146,172.16.10.149"
+
+# Galera Synchronization Congifuration
+wsrep_sst_method=rsync
+#wsrep_sst_auth=user:pass
+
+# Galera Node Configuration
+wsrep_node_address="172.16.10.146"
+wsrep_node_name="vm-172-16-10-146"
+
+Y en el NODO 02 (172.16.10.149) se crea la configuración del cluster:
+
+vi /etc/my.cnf.d/cluster.conf
+
+[mysqld]
+binlog_format=ROW
+default-storage-engine=innodb
+innodb_autoinc_lock_mode=2
+query_cache_type=0
+query_cache_size=0
+bind-address=0.0.0.0
+max_allowed_packet=1024M
+max_connections=1000
+
+# Galera Provider Configuration
+wsrep_provider=/usr/lib64/galera/libgalera_smm.so
+#wsrep_provider_options="gcache.size=32G"
+
+# Galera Cluster Configuration
+wsrep_cluster_name="CorreoCorp"
+wsrep_cluster_address="gcomm://172.16.10.146,172.16.10.149"
+
+# Galera Synchronization Congifuration
+wsrep_sst_method=rsync
+#wsrep_sst_auth=user:pass
+
+# Galera Node Configuration
+wsrep_node_address="172.16.10.149"
+wsrep_node_name="vm-172-16-10-149"
+
+
+En el NODO 01 (172.16.10.146) se ejcuta el siguiente comando para inicializar el cluster:
+
+/etc/init.d/mysql start --wsrep-new-cluster
+
+En el NODO 02 (172.16.10.149) se ejecuta el siguiente comando para completar el cluster:
+
+/etc/init.d/mysql start
+
+Se valida en ambos nodos entrando al engine con el comando "mysql" y ejecutando:
+
+SHOW STATUS LIKE 'wsrep%';
+
+FIN.-

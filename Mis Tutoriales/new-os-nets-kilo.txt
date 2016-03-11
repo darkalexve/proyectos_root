@@ -1,0 +1,93 @@
+ovs-vsctl add-port br-em2 em2-31 tag=31 -- set interface em2-31 type=internal
+ovs-vsctl add-port br-em2 em2-32 tag=32 -- set interface em2-32 type=internal
+
+TENANTS:
+
+[root@controller01 ~(keystone_fulladmin)]$ openstack project list
++----------------------------------+-----------------+
+| ID                               | Name            |
++----------------------------------+-----------------+
+| 45f40b970fc44dd59d1e072395c3ead6 | servidores      |
+| 58e7ba6964d14a69a82bb4e57ea7594a | admin           |
+| 6e618e6a239c40b4a47d8bdf55dfd51c | services        |
+| b325a72836204b78aa659f9587603782 | infraestructura |
++----------------------------------+-----------------+
+
+
+
+neutron net-create netvlan31 \
+--shared \
+--provider:network_type vlan \
+--provider:physical_network atlantic01 \
+--provider:segmentation_id 31 \
+--router:external
+
+neutron net-create netvlan32 \
+--shared \
+--provider:network_type vlan \
+--provider:physical_network atlantic01 \
+--provider:segmentation_id 32 \
+--router:external
+
+neutron subnet-create netvlan31 172.16.31.0/24 \
+--gateway 172.16.31.254 \
+--name subnet-vlan-31 \
+--allocation-pool start=172.16.31.10,end=172.16.31.200 \
+--dns-nameserver 172.16.15.25 \
+--dns-nameserver 172.16.17.1 \
+--dns-nameserver 172.16.17.2
+
+neutron subnet-create netvlan32 172.16.32.0/24 \
+--gateway 172.16.32.254 \
+--name subnet-vlan-32 \
+--allocation-pool start=172.16.32.10,end=172.16.32.200 \
+--dns-nameserver 172.16.15.25 \
+--dns-nameserver 172.16.17.1 \
+--dns-nameserver 172.16.17.2
+
+
+VLAN 30
+
+ovs-vsctl add-port br-em2 em2-30 tag=30 -- set interface em2-30 type=internal
+
+auto em2-30
+iface em2-30 inet static
+address 172.16.30.X
+netmask 255.255.255.0
+broadcast 172.16.30.255
+
+
+neutron net-create netvlan30 \
+--shared \
+--provider:network_type vlan \
+--provider:physical_network atlantic01 \
+--provider:segmentation_id 30 \
+--router:external
+
+neutron subnet-create netvlan30 172.16.30.0/24 \
+--gateway 172.16.30.254 \
+--name subnet-vlan-30 \
+--allocation-pool start=172.16.30.10,end=172.16.30.200 \
+--dns-nameserver 172.16.1.174 \
+--dns-nameserver 172.16.1.175 \
+--dns-nameserver 172.16.1.189 \
+--dns-nameserver 172.16.15.25
+
+Imagen VM Moddle:
+
+glance image-create --name "Debian-7-64-Moodle-Movistar" \
+--is-public true \
+--container-format bare \
+--disk-format qcow2 \
+--progress --file /workdir/final-images/moodle-movistar.qcow2
+
+VM Moodle:
+
+nova boot \
+--flavor m3.large.70gb.root \
+--image Debian-7-64-Moodle-Movistar \
+--security-groups FULLACCESS \
+--nic net-id=b5508aff-887b-42da-a5cd-57ea8a498882,v4-fixed-ip=172.16.30.38 \
+Moodle-Movistar
+
+
